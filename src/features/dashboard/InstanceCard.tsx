@@ -43,6 +43,7 @@ import { useWallpaperStore } from "@/stores/wallpaperStore";
 import { ResourceUsageRow } from "@/features/dashboard/ResourceUsageRow";
 import { api } from "@/lib/tauri";
 import { STATUS_DOT, STATUS_LABEL } from "@/lib/serverStatus";
+import { getRequiredJavaMajor, parseJavaMajor } from "@/lib/javaRequirement";
 import type { Instance } from "@/types/instance";
 
 const NO_JAVA_VALUE = "__none__";
@@ -63,6 +64,12 @@ export function InstanceCard({ instance }: { instance: Instance }) {
   const [isProcessActionPending, setIsProcessActionPending] = useState(false);
 
   const canDelete = instance.status === "stopped" || instance.status === "crashed";
+
+  const requiredJava = getRequiredJavaMajor(instance.minecraftVersion);
+  const assignedJava = installations.find((j) => j.id === instance.javaInstallationId);
+  const assignedJavaMajor = assignedJava ? parseJavaMajor(assignedJava.version) : null;
+  const javaMismatch =
+    requiredJava !== null && assignedJavaMajor !== null && assignedJavaMajor !== requiredJava;
 
   useEffect(() => {
     fetchInstallations();
@@ -207,22 +214,38 @@ export function InstanceCard({ instance }: { instance: Instance }) {
 
       {instance.status === "running" && <ResourceUsageRow instance={instance} />}
 
-      <Select
-        value={instance.javaInstallationId ?? NO_JAVA_VALUE}
-        onValueChange={handleJavaChange}
-      >
-        <SelectTrigger className="w-full" size="sm">
-          <SelectValue placeholder="No Java selected" />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value={NO_JAVA_VALUE}>No Java selected</SelectItem>
-          {installations.map((java) => (
-            <SelectItem key={java.id} value={java.id}>
-              Java {java.version} ({java.architecture})
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+      <div className="flex flex-col gap-1">
+        <Select
+          value={instance.javaInstallationId ?? NO_JAVA_VALUE}
+          onValueChange={handleJavaChange}
+        >
+          <SelectTrigger className="w-full" size="sm">
+            <SelectValue placeholder="No Java selected" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={NO_JAVA_VALUE}>No Java selected</SelectItem>
+            {installations.map((java) => {
+              const major = parseJavaMajor(java.version);
+              const recommended = requiredJava !== null && major === requiredJava;
+              return (
+                <SelectItem key={java.id} value={java.id}>
+                  Java {java.version} ({java.architecture})
+                  {recommended ? " · Recommended" : ""}
+                </SelectItem>
+              );
+            })}
+          </SelectContent>
+        </Select>
+        {javaMismatch && (
+          <p className="text-xs text-destructive">
+            Minecraft {instance.minecraftVersion} needs Java {requiredJava}; this instance is set
+            to Java {assignedJavaMajor}.
+          </p>
+        )}
+        {!assignedJava && requiredJava !== null && (
+          <p className="text-xs text-muted-foreground">Recommended: Java {requiredJava}</p>
+        )}
+      </div>
 
       <div className="flex gap-2">
         {(instance.status === "stopped" || instance.status === "crashed") && (

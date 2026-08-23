@@ -5,17 +5,21 @@ import { Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { api } from "@/lib/tauri";
+import { useAppSetting, useBoolAppSetting } from "@/hooks/useAppSetting";
 import { LOG_EVENT, type LogLinePayload } from "@/types/events";
 import type { Instance } from "@/types/instance";
-
-/** Hard cap on retained lines so a chatty server can't grow this unbounded. */
-const MAX_LINES = 2000;
 
 interface ConsoleLine {
   id: number;
   stream: "stdout" | "stderr";
   text: string;
 }
+
+const FONT_SIZE_CLASS: Record<string, string> = {
+  xs: "text-xs",
+  sm: "text-sm",
+  base: "text-base",
+};
 
 export function Console({ instance }: { instance: Instance }) {
   const [lines, setLines] = useState<ConsoleLine[]>([]);
@@ -25,10 +29,15 @@ export function Console({ instance }: { instance: Instance }) {
   const stickToBottomRef = useRef(true);
   const nextIdRef = useRef(0);
 
+  const { value: maxLinesSetting } = useAppSetting("console_max_lines", "2000");
+  const { value: fontSize } = useAppSetting("console_font_size", "xs");
+  const { value: wordWrap } = useBoolAppSetting("console_word_wrap", false);
+  const maxLines = Number(maxLinesSetting) || 2000;
+
   function appendLine(stream: "stdout" | "stderr", text: string) {
     setLines((prev) => {
       const next = [...prev, { id: nextIdRef.current++, stream, text }];
-      return next.length > MAX_LINES ? next.slice(next.length - MAX_LINES) : next;
+      return next.length > maxLines ? next.slice(next.length - maxLines) : next;
     });
   }
 
@@ -45,7 +54,7 @@ export function Console({ instance }: { instance: Instance }) {
           .split(/\r?\n/)
           .filter((line) => line.length > 0)
           .map((text) => ({ id: nextIdRef.current++, stream: "stdout" as const, text }));
-        setLines(historic.slice(-MAX_LINES));
+        setLines(historic.slice(-maxLines));
       })
       .catch(() => {
         // No log file yet (never started) - starting empty is correct.
@@ -105,7 +114,7 @@ export function Console({ instance }: { instance: Instance }) {
       <div
         ref={scrollRef}
         onScroll={handleScroll}
-        className="flex-1 overflow-y-auto rounded-lg border border-border bg-black/95 p-3 font-mono text-xs leading-relaxed"
+        className={`flex-1 overflow-y-auto rounded-lg border border-border bg-black/95 p-3 font-mono leading-relaxed ${FONT_SIZE_CLASS[fontSize] ?? "text-xs"}`}
       >
         {lines.length === 0 ? (
           <p className="text-zinc-500">No output yet.</p>
@@ -113,7 +122,9 @@ export function Console({ instance }: { instance: Instance }) {
           lines.map((line) => (
             <div
               key={line.id}
-              className={line.stream === "stderr" ? "text-red-400" : "text-zinc-300"}
+              className={`${line.stream === "stderr" ? "text-red-400" : "text-zinc-300"} ${
+                wordWrap ? "whitespace-pre-wrap wrap-break-word" : "whitespace-pre"
+              }`}
             >
               {line.text}
             </div>

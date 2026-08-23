@@ -9,7 +9,7 @@ mod server;
 
 use filesystem::AppPaths;
 use sqlx::SqlitePool;
-use tauri::{Emitter, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 
 /// Shared state handed to every Tauri command via `tauri::State<AppState>`.
 pub struct AppState {
@@ -19,21 +19,38 @@ pub struct AppState {
     pub resource_monitor: server::ResourceMonitor,
 }
 
+/// Checks for running servers before actually exiting: if any are running,
+/// asks the frontend to confirm (via the close-guard dialog) rather than
+/// killing them silently. Shared by the window's close button and the tray
+/// menu's Quit item, so both go through the same safety check.
+async fn request_app_exit(app: &AppHandle) {
+    let state = app.state::<AppState>();
+    if state.processes.any_running().await {
+        let _ = app.emit("close-requested-with-running-servers", ());
+    } else {
+        app.exit(0);
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            None,
+        ))
         .setup(|app| {
             let handle = app.handle().clone();
 
-            let paths = AppPaths::resolve(&handle)?;
-            paths.ensure_dirs_exist()?;
+            let mut paths = AppPaths::resolve(&handle)?;
 
             // Logging must start before anything else can fail loudly.
             // Leaked deliberately: it needs to live for the whole process,
             // and `setup` has no natural place to stash a guard that outlives it.
+            std::fs::create_dir_all(&paths.logs_dir)?;
             let guard = logging::init(&paths.logs_dir);
             Box::leak(Box::new(guard));
 
@@ -49,6 +66,18 @@ pub fn run() {
             // `setup` is synchronous; block briefly on the one-time pool/migration
             // step so every command that runs afterward can assume the DB is ready.
             let db = tauri::async_runtime::block_on(database::init_pool(&paths.db_path))?;
+
+            // A user-configured instances directory (Settings) overrides the
+            // default location. Applied here, before anything else touches
+            // `paths.instances_dir`, so the whole app session is consistent.
+            if let Ok(Some(custom_dir)) = tauri::async_runtime::block_on(
+                commands::settings::get_setting(&db, "instances_dir"),
+            ) {
+                if !custom_dir.trim().is_empty() {
+                    paths.instances_dir = std::path::PathBuf::from(custom_dir);
+                }
+            }
+            paths.ensure_dirs_exist()?;
 
             app.manage(AppState {
                 db,
@@ -83,7 +112,9 @@ pub fn run() {
             // Guard against closing ModForge while a Minecraft server is
             // still running: without this, the child process would be
             // orphaned (left running with no UI to manage it) rather than
-            // shut down cleanly.
+            // shut down cleanly. If "minimize to tray" is on, a close
+            // request just hides the window instead - nothing is exiting,
+            // so there's nothing to guard.
             if let Some(window) = app.get_webview_window("main") {
                 let handle = app.handle().clone();
                 window.on_window_event(move |event| {
@@ -92,15 +123,24 @@ pub fn run() {
                         let handle = handle.clone();
                         tauri::async_runtime::spawn(async move {
                             let state = handle.state::<AppState>();
-                            if state.processes.any_running().await {
-                                let _ = handle.emit("close-requested-with-running-servers", ());
-                            } else if let Some(window) = handle.get_webview_window("main") {
-                                let _ = window.destroy();
+                            let minimize_to_tray =
+                                commands::settings::get_setting_bool(&state.db, "minimize_to_tray", false)
+                                    .await;
+
+                            if minimize_to_tray {
+                                if let Some(window) = handle.get_webview_window("main") {
+                                    let _ = window.hide();
+                                }
+                                return;
                             }
+
+                            request_app_exit(&handle).await;
                         });
                     }
                 });
             }
+
+            setup_tray(app)?;
 
             Ok(())
         })
@@ -118,6 +158,7 @@ pub fn run() {
             commands::java::list_java_installations,
             commands::java::detect_java_installations,
             commands::java::set_default_java,
+            commands::java::reset_java_installations,
             commands::server::start_instance,
             commands::server::stop_instance,
             commands::server::force_stop_instance,
@@ -128,6 +169,9 @@ pub fn run() {
             commands::wallpaper::set_instance_wallpaper,
             commands::wallpaper::clear_instance_wallpaper,
             commands::wallpaper::read_instance_wallpaper,
+            commands::wallpaper::set_app_wallpaper,
+            commands::wallpaper::clear_app_wallpaper,
+            commands::wallpaper::read_app_wallpaper,
             commands::monitor::get_resource_usage,
             commands::diagnostics::get_app_logs_dir,
             commands::diagnostics::export_app_log,
@@ -143,7 +187,66 @@ pub fn run() {
             commands::mods::list_mods,
             commands::mods::toggle_mod,
             commands::mods::delete_mod,
+            commands::settings::get_app_setting,
+            commands::settings::set_app_setting,
+            commands::settings::get_instances_dir,
+            commands::settings::set_instances_dir,
+            commands::settings::quit_app,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+/// Builds the tray icon: left-click (or the "Show ModForge" item) restores
+/// the window, "Quit" goes through the same running-servers safety check as
+/// the window's own close button.
+fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
+    use tauri::menu::{Menu, MenuItem};
+    use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+
+    let show_item = MenuItem::with_id(app, "show", "Show ModForge", true, None::<&str>)?;
+    let quit_item = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
+    let menu = Menu::with_items(app, &[&show_item, &quit_item])?;
+
+    let icon = app
+        .default_window_icon()
+        .cloned()
+        .expect("app icon is bundled");
+
+    TrayIconBuilder::new()
+        .icon(icon)
+        .menu(&menu)
+        .tooltip("ModForge")
+        .on_menu_event(|app, event| match event.id.as_ref() {
+            "show" => {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
+            }
+            "quit" => {
+                let app = app.clone();
+                tauri::async_runtime::spawn(async move {
+                    request_app_exit(&app).await;
+                });
+            }
+            _ => {}
+        })
+        .on_tray_icon_event(|tray, event| {
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } = event
+            {
+                let app = tray.app_handle();
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
+            }
+        })
+        .build(app)?;
+
+    Ok(())
 }

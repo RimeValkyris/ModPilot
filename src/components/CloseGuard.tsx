@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import { toast } from "sonner";
 import {
   AlertDialog,
@@ -39,7 +38,7 @@ export function CloseGuard() {
     try {
       const runningIds = await api.listRunningInstanceIds();
       await Promise.all(runningIds.map((id) => api.forceStopInstance(id)));
-      await getCurrentWindow().destroy();
+      await api.quitApp();
     } catch (err) {
       toast.error("Failed to stop servers", { description: String(err) });
       setIsStopping(false);

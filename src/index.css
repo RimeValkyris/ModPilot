@@ -117,6 +117,67 @@
     --sidebar-ring: oklch(0.556 0 0);
 }
 
+/* Extra themes beyond plain light/dark. Applied alongside `.dark` (so
+   Tailwind's `dark:` variant still behaves correctly) and override the
+   same variable set `.dark` defines above. */
+.theme-dracula {
+    --background: #282a36;
+    --foreground: #f8f8f2;
+    --card: #343746;
+    --card-foreground: #f8f8f2;
+    --popover: #343746;
+    --popover-foreground: #f8f8f2;
+    --primary: #bd93f9;
+    --primary-foreground: #282a36;
+    --secondary: #44475a;
+    --secondary-foreground: #f8f8f2;
+    --muted: #44475a;
+    --muted-foreground: #a6adc8;
+    --accent: #44475a;
+    --accent-foreground: #f8f8f2;
+    --destructive: #ff5555;
+    --border: #44475a;
+    --input: #44475a;
+    --ring: #bd93f9;
+    --sidebar: #21222c;
+    --sidebar-foreground: #f8f8f2;
+    --sidebar-primary: #bd93f9;
+    --sidebar-primary-foreground: #282a36;
+    --sidebar-accent: #44475a;
+    --sidebar-accent-foreground: #f8f8f2;
+    --sidebar-border: #44475a;
+    --sidebar-ring: #bd93f9;
+}
+
+.theme-nord {
+    --background: #2e3440;
+    --foreground: #eceff4;
+    --card: #3b4252;
+    --card-foreground: #eceff4;
+    --popover: #3b4252;
+    --popover-foreground: #eceff4;
+    --primary: #88c0d0;
+    --primary-foreground: #2e3440;
+    --secondary: #434c5e;
+    --secondary-foreground: #eceff4;
+    --muted: #434c5e;
+    --muted-foreground: #d8dee9;
+    --accent: #4c566a;
+    --accent-foreground: #eceff4;
+    --destructive: #bf616a;
+    --border: #4c566a;
+    --input: #4c566a;
+    --ring: #88c0d0;
+    --sidebar: #292e39;
+    --sidebar-foreground: #eceff4;
+    --sidebar-primary: #88c0d0;
+    --sidebar-primary-foreground: #2e3440;
+    --sidebar-accent: #434c5e;
+    --sidebar-accent-foreground: #eceff4;
+    --sidebar-border: #4c566a;
+    --sidebar-ring: #88c0d0;
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;

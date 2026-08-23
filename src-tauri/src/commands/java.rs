@@ -92,3 +92,16 @@ pub async fn set_default_java(state: State<'_, AppState>, id: String) -> Result<
 
     Ok(())
 }
+
+/// Forgets every detected Java installation. Any instance referencing one
+/// has its `java_installation_id` cleared automatically (the `ON DELETE
+/// SET NULL` foreign key from the initial migration) - nothing about the
+/// instance itself is touched, it just needs Java re-assigned afterward.
+#[tauri::command]
+pub async fn reset_java_installations(state: State<'_, AppState>) -> Result<(), String> {
+    sqlx::query("DELETE FROM java_installations")
+        .execute(&state.db)
+        .await
+        .map_err(|e| format!("Failed to reset Java installations: {e}"))?;
+    Ok(())
+}

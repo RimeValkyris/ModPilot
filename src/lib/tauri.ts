@@ -111,4 +111,23 @@ export const api = {
   toggleMod: (id: string, fileName: string) => invoke<void>("toggle_mod", { id, fileName }),
 
   deleteMod: (id: string, fileName: string) => invoke<void>("delete_mod", { id, fileName }),
+
+  getAppSetting: (key: string) => invoke<string | null>("get_app_setting", { key }),
+
+  setAppSetting: (key: string, value: string) => invoke<void>("set_app_setting", { key, value }),
+
+  getInstancesDir: () => invoke<string>("get_instances_dir"),
+
+  setInstancesDir: (newDir: string, moveExisting: boolean) =>
+    invoke<void>("set_instances_dir", { newDir, moveExisting }),
+
+  quitApp: () => invoke<void>("quit_app"),
+
+  resetJavaInstallations: () => invoke<void>("reset_java_installations"),
+
+  setAppWallpaper: (sourcePath: string) => invoke<void>("set_app_wallpaper", { sourcePath }),
+
+  clearAppWallpaper: () => invoke<void>("clear_app_wallpaper"),
+
+  readAppWallpaper: () => invoke<string | null>("read_app_wallpaper"),
 };

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -22,6 +22,8 @@ import {
 } from "@/components/ui/select";
 import { useInstances } from "@/hooks/useInstances";
 import { SERVER_LOADERS, type ServerLoader } from "@/types/instance";
+import { getRequiredJavaMajor } from "@/lib/javaRequirement";
+import { api } from "@/lib/tauri";
 
 const LOADER_LABELS: Record<ServerLoader, string> = {
   vanilla: "Vanilla",
@@ -45,6 +47,24 @@ export function CreateInstanceDialog() {
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(initialState);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const requiredJava = getRequiredJavaMajor(form.minecraftVersion);
+
+  // Pre-fill from Settings > New Instance Defaults, but only while the form
+  // still has its untouched placeholder values - don't clobber something
+  // the user already typed if this fetch resolves late.
+  useEffect(() => {
+    Promise.all([
+      api.getAppSetting("default_min_ram_mb"),
+      api.getAppSetting("default_max_ram_mb"),
+    ]).then(([min, max]) => {
+      setForm((prev) => ({
+        ...prev,
+        minRamMb: prev.minRamMb === initialState.minRamMb ? (min ?? prev.minRamMb) : prev.minRamMb,
+        maxRamMb: prev.maxRamMb === initialState.maxRamMb ? (max ?? prev.maxRamMb) : prev.maxRamMb,
+      }));
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -109,6 +129,11 @@ export function CreateInstanceDialog() {
               }
               placeholder="1.21.1 (optional)"
             />
+            {requiredJava !== null && (
+              <p className="text-xs text-muted-foreground">
+                Requires Java {requiredJava}. You can assign it after creating the instance.
+              </p>
+            )}
           </div>
 
           <div className="flex flex-col gap-1.5">

@@ -4,6 +4,7 @@ use chrono::Utc;
 use tauri::State;
 use uuid::Uuid;
 
+use super::settings::get_setting;
 use crate::filesystem::sanitize_dir_name;
 use crate::importer;
 use crate::models::{
@@ -44,11 +45,24 @@ pub async fn create_instance(
         return Err("Instance name cannot be empty".to_string());
     }
 
-    let min_ram_mb = request.min_ram_mb.unwrap_or(2048);
-    let max_ram_mb = request.max_ram_mb.unwrap_or(4096);
+    let default_min_ram = get_setting(&state.db, "default_min_ram_mb")
+        .await?
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(2048);
+    let default_max_ram = get_setting(&state.db, "default_max_ram_mb")
+        .await?
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(4096);
+    let min_ram_mb = request.min_ram_mb.unwrap_or(default_min_ram);
+    let max_ram_mb = request.max_ram_mb.unwrap_or(default_max_ram);
     if min_ram_mb <= 0 || max_ram_mb <= 0 || min_ram_mb > max_ram_mb {
         return Err("Minimum RAM must be positive and not exceed maximum RAM".to_string());
     }
+
+    let jvm_args: Vec<String> = get_setting(&state.db, "default_jvm_args")
+        .await?
+        .map(|v| v.lines().map(str::trim).filter(|l| !l.is_empty()).map(String::from).collect())
+        .unwrap_or_default();
 
     let dir_name = sanitize_dir_name(&name);
     let server_directory = state.paths.instances_dir.join(&dir_name);
@@ -78,7 +92,7 @@ pub async fn create_instance(
         max_ram_mb,
         server_directory: server_directory.to_string_lossy().to_string(),
         server_jar: None,
-        jvm_args: Vec::new(),
+        jvm_args,
         server_args: Vec::new(),
         status: ServerStatus::Stopped,
         auto_start: false,

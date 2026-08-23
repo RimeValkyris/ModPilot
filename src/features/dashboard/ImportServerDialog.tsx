@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/select";
 import { useInstances } from "@/hooks/useInstances";
 import { api } from "@/lib/tauri";
+import { getRequiredJavaMajor } from "@/lib/javaRequirement";
 import { SERVER_LOADERS, type ServerLoader } from "@/types/instance";
 import {
   INSTANCE_EXISTS_PREFIX,
@@ -281,6 +282,12 @@ export function ImportServerDialog() {
                 onChange={(e) => setMinecraftVersion(e.target.value)}
                 placeholder="Unknown"
               />
+              {getRequiredJavaMajor(minecraftVersion) !== null && (
+                <p className="text-xs text-muted-foreground">
+                  Requires Java {getRequiredJavaMajor(minecraftVersion)}. You can assign it after
+                  importing.
+                </p>
+              )}
             </div>
 
             <div className="flex flex-col gap-1.5">

@@ -60,6 +60,19 @@ pub async fn set_status(
 }
 
 async fn notify_status(app: &AppHandle, db: &SqlitePool, instance_id: &str, status: ServerStatus) {
+    // Inlined rather than reusing `commands::settings`'s helper - this
+    // module deliberately has no dependency on `commands` (see doc comment
+    // on `set_status` above).
+    let setting: Option<String> = sqlx::query_scalar(
+        "SELECT value FROM application_settings WHERE key = 'notifications_enabled'",
+    )
+    .fetch_optional(db)
+    .await
+    .unwrap_or_default();
+    if setting.as_deref() == Some("false") {
+        return;
+    }
+
     let name: Option<String> = sqlx::query_scalar("SELECT name FROM instances WHERE id = ?")
         .bind(instance_id)
         .fetch_optional(db)
