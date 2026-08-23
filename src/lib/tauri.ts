@@ -10,6 +10,7 @@ import type {
   ImportSource,
 } from "@/types/import";
 import type { JavaInstallation } from "@/types/java";
+import type { ResourceUsage } from "@/types/monitor";
 
 /**
  * Thin wrapper around Tauri's `invoke` calls. Keeping every command call in
@@ -67,4 +68,17 @@ export const api = {
 
   readInstanceWallpaper: (id: string) =>
     invoke<string | null>("read_instance_wallpaper", { id }),
+
+  getResourceUsage: (id: string) => invoke<ResourceUsage>("get_resource_usage", { id }),
+
+  listRunningInstanceIds: () => invoke<string[]>("list_running_instance_ids"),
+
+  getAppLogsDir: () => invoke<string>("get_app_logs_dir"),
+
+  exportAppLog: (destPath: string) => invoke<void>("export_app_log", { destPath }),
+
+  exportInstanceLog: (id: string, destPath: string) =>
+    invoke<void>("export_instance_log", { id, destPath }),
+
+  getInstanceLogsDir: (id: string) => invoke<string>("get_instance_logs_dir", { id }),
 };

@@ -9,6 +9,8 @@ import { useWallpaperStore } from "@/stores/wallpaperStore";
 import { STATUS_DOT, STATUS_LABEL } from "@/lib/serverStatus";
 import { Console } from "@/features/console/Console";
 import { InstanceSettingsForm } from "@/features/settings/InstanceSettingsForm";
+import { ResourceUsageRow } from "@/features/dashboard/ResourceUsageRow";
+import { InstanceLogsTab } from "@/features/console/InstanceLogsTab";
 
 const TABS = ["overview", "console", "files", "mods", "configuration", "logs"] as const;
 type Tab = (typeof TABS)[number];
@@ -100,7 +102,12 @@ export function InstanceDetailPage() {
           <TabsTrigger value="logs">Logs</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="overview">
+        <TabsContent value="overview" className="flex flex-col gap-4">
+          {instance.status === "running" && (
+            <div className="rounded-xl border border-border bg-card p-4">
+              <ResourceUsageRow instance={instance} />
+            </div>
+          )}
           <dl className="grid grid-cols-2 gap-x-6 gap-y-3 rounded-xl border border-border bg-card p-4 text-sm sm:grid-cols-3">
             <div>
               <dt className="text-muted-foreground">Minecraft version</dt>
@@ -159,7 +166,7 @@ export function InstanceDetailPage() {
           <InstanceSettingsForm instance={instance} />
         </TabsContent>
         <TabsContent value="logs">
-          <ComingSoon label="Log management" />
+          <InstanceLogsTab instance={instance} />
         </TabsContent>
       </Tabs>
     </div>

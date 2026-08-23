@@ -10,6 +10,7 @@ use tokio::sync::{mpsc, Mutex};
 /// Everything needed to interact with one instance's live server process.
 /// Owned by [`ProcessManager`] for as long as the process is running.
 pub struct RunningProcess {
+    pub pid: Option<u32>,
     pub stdin: ChildStdin,
     /// Signals the watcher task (see `process::spawn_server_process`) to
     /// force-kill the child. Sending on this is force-stop; a graceful stop
@@ -38,6 +39,14 @@ impl ProcessManager {
 
     pub async fn is_running(&self, instance_id: &str) -> bool {
         self.processes.lock().await.contains_key(instance_id)
+    }
+
+    pub async fn any_running(&self) -> bool {
+        !self.processes.lock().await.is_empty()
+    }
+
+    pub async fn running_ids(&self) -> Vec<String> {
+        self.processes.lock().await.keys().cloned().collect()
     }
 
     pub async fn insert(&self, instance_id: String, process: RunningProcess) {
@@ -88,5 +97,12 @@ impl ProcessManager {
             .get(instance_id)
             .map(|p| p.kill_tx.clone())
             .ok_or_else(|| "Instance is not running".to_string())
+    }
+
+    /// Returns `(pid, started_at)` for a running instance, if it has one -
+    /// used for resource monitoring (Phase 8).
+    pub async fn running_info(&self, instance_id: &str) -> Option<(Option<u32>, DateTime<Utc>)> {
+        let processes = self.processes.lock().await;
+        processes.get(instance_id).map(|p| (p.pid, p.started_at))
     }
 }

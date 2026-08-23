@@ -21,6 +21,7 @@ const STARTUP_COMPLETE_MARKER: &str = "Done (";
 pub struct SpawnedServer {
     pub stdin: ChildStdin,
     pub kill_tx: mpsc::Sender<()>,
+    pub pid: Option<u32>,
 }
 
 /// Persists a status change and tells the frontend about it. Kept small and
@@ -91,6 +92,7 @@ pub async fn spawn_server_process(
     }
 
     let mut child = command.spawn()?;
+    let pid = child.id();
     let stdin = child.stdin.take().expect("stdin was piped");
     let stdout = child.stdout.take().expect("stdout was piped");
     let stderr = child.stderr.take().expect("stderr was piped");
@@ -165,7 +167,7 @@ pub async fn spawn_server_process(
         set_status(&app, &db, &instance_id, final_status).await;
     });
 
-    Ok(SpawnedServer { stdin, kill_tx })
+    Ok(SpawnedServer { stdin, kill_tx, pid })
 }
 
 #[allow(clippy::too_many_arguments)]

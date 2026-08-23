@@ -42,4 +42,5 @@ zip = { version = "2", default-features = false, features = ["deflate", "bzip2"]
 regex = "1"
 walkdir = "2"
 base64 = "0.22"
+sysinfo = "0.32"
 

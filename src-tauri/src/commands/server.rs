@@ -114,6 +114,7 @@ pub async fn start_instance(app: AppHandle, state: State<'_, AppState>, id: Stri
         .insert(
             id,
             RunningProcess {
+                pid: spawned.pid,
                 stdin: spawned.stdin,
                 kill_tx: spawned.kill_tx,
                 stop_requested,
@@ -178,6 +179,13 @@ pub async fn restart_instance(app: AppHandle, state: State<'_, AppState>, id: St
     }
 
     start_instance(app, state, id).await
+}
+
+/// Returns the ids of every instance ModForge currently has a running
+/// server process for. Used by the "servers are still running" close-guard.
+#[tauri::command]
+pub async fn list_running_instance_ids(state: State<'_, AppState>) -> Result<Vec<String>, String> {
+    Ok(state.processes.running_ids().await)
 }
 
 /// Sends an arbitrary command to a running instance's console, e.g.

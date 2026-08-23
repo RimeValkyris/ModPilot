@@ -40,6 +40,7 @@ import {
 import { useInstances } from "@/hooks/useInstances";
 import { useJavaStore } from "@/stores/javaStore";
 import { useWallpaperStore } from "@/stores/wallpaperStore";
+import { ResourceUsageRow } from "@/features/dashboard/ResourceUsageRow";
 import { api } from "@/lib/tauri";
 import { STATUS_DOT, STATUS_LABEL } from "@/lib/serverStatus";
 import type { Instance } from "@/types/instance";
@@ -54,6 +55,7 @@ export function InstanceCard({ instance }: { instance: Instance }) {
   const wallpaper = wallpapers[instance.id];
   const [renameOpen, setRenameOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [forceStopOpen, setForceStopOpen] = useState(false);
   const [nameDraft, setNameDraft] = useState(instance.name);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isProcessActionPending, setIsProcessActionPending] = useState(false);
@@ -118,6 +120,18 @@ export function InstanceCard({ instance }: { instance: Instance }) {
     }
   }
 
+  async function handleForceStop() {
+    setIsProcessActionPending(true);
+    try {
+      await api.forceStopInstance(instance.id);
+      setForceStopOpen(false);
+    } catch (err) {
+      toast.error("Failed to force stop instance", { description: String(err) });
+    } finally {
+      setIsProcessActionPending(false);
+    }
+  }
+
   return (
     <li
       className="relative flex flex-col gap-3 overflow-hidden rounded-xl border border-border bg-card p-4"
@@ -148,15 +162,7 @@ export function InstanceCard({ instance }: { instance: Instance }) {
               Rename
             </DropdownMenuItem>
             {(instance.status === "running" || instance.status === "stopping") && (
-              <DropdownMenuItem
-                variant="destructive"
-                onClick={() =>
-                  runProcessAction(
-                    () => api.forceStopInstance(instance.id),
-                    "Failed to force stop instance",
-                  )
-                }
-              >
+              <DropdownMenuItem variant="destructive" onClick={() => setForceStopOpen(true)}>
                 <OctagonX />
                 Force Stop
               </DropdownMenuItem>
@@ -177,6 +183,8 @@ export function InstanceCard({ instance }: { instance: Instance }) {
         <span className={`size-2 rounded-full ${STATUS_DOT[instance.status]}`} />
         <Badge variant="outline">{STATUS_LABEL[instance.status]}</Badge>
       </div>
+
+      {instance.status === "running" && <ResourceUsageRow instance={instance} />}
 
       <Select
         value={instance.javaInstallationId ?? NO_JAVA_VALUE}
@@ -312,6 +320,29 @@ export function InstanceCard({ instance }: { instance: Instance }) {
               onClick={handleDelete}
             >
               {isSubmitting ? "Deleting…" : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={forceStopOpen} onOpenChange={setForceStopOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Force stop "{instance.name}"?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This kills the server process immediately without letting it
+              save. Any unsaved world changes since the last autosave will
+              be lost. Use "Stop" instead if the server is responsive.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-white hover:bg-destructive/90"
+              disabled={isProcessActionPending}
+              onClick={handleForceStop}
+            >
+              {isProcessActionPending ? "Forcing…" : "Force Stop"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
