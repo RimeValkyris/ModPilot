@@ -55,6 +55,8 @@ pub fn run() {
             commands::instance::rename_instance,
             commands::instance::delete_instance,
             commands::instance::set_instance_java,
+            commands::instance::list_server_jars,
+            commands::instance::update_instance_settings,
             commands::import::analyze_import,
             commands::import::import_instance,
             commands::java::list_java_installations,
@@ -65,6 +67,10 @@ pub fn run() {
             commands::server::force_stop_instance,
             commands::server::restart_instance,
             commands::server::send_console_command,
+            commands::logs::read_latest_log,
+            commands::wallpaper::set_instance_wallpaper,
+            commands::wallpaper::clear_instance_wallpaper,
+            commands::wallpaper::read_instance_wallpaper,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

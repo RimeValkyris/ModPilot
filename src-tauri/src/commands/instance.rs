@@ -5,12 +5,15 @@ use tauri::State;
 use uuid::Uuid;
 
 use crate::filesystem::sanitize_dir_name;
-use crate::models::{CreateInstanceRequest, Instance, InstanceRow, ServerLoader, ServerStatus};
+use crate::models::{
+    CreateInstanceRequest, Instance, InstanceRow, ServerLoader, ServerStatus,
+    UpdateInstanceSettingsRequest,
+};
 use crate::AppState;
 
 const INSTANCE_COLUMNS: &str = "id, name, minecraft_version, loader, loader_version, java_installation_id,
      min_ram_mb, max_ram_mb, server_directory, server_jar, jvm_args, server_args,
-     status, auto_start, auto_restart, created_at, last_launched_at";
+     status, auto_start, auto_restart, created_at, last_launched_at, wallpaper_path";
 
 /// Lists every server instance ModForge knows about, newest first.
 #[tauri::command]
@@ -81,6 +84,7 @@ pub async fn create_instance(
         auto_restart: false,
         created_at: Utc::now(),
         last_launched_at: None,
+        wallpaper_path: None,
     };
 
     if let Err(e) = insert_instance(&state, &instance).await {
@@ -128,6 +132,83 @@ pub async fn rename_instance(
 
     if let Err(e) = write_instance_json(Path::new(&instance.server_directory), &instance).await {
         tracing::warn!("Instance {id} renamed, but instance.json update failed: {e}");
+    }
+
+    Ok(instance)
+}
+
+/// Lists `.jar` files directly under an instance's `server/` folder, so the
+/// Configuration tab can offer a picker instead of a free-text path.
+#[tauri::command]
+pub async fn list_server_jars(state: State<'_, AppState>, id: String) -> Result<Vec<String>, String> {
+    let instance = fetch_instance(&state, &id)
+        .await?
+        .ok_or_else(|| "Instance not found".to_string())?;
+
+    let server_dir = Path::new(&instance.server_directory).join("server");
+    let mut entries = tokio::fs::read_dir(&server_dir)
+        .await
+        .map_err(|e| format!("Failed to read server directory: {e}"))?;
+
+    let mut jars = Vec::new();
+    while let Some(entry) = entries
+        .next_entry()
+        .await
+        .map_err(|e| format!("Failed to read server directory: {e}"))?
+    {
+        let name = entry.file_name().to_string_lossy().to_string();
+        if name.to_lowercase().ends_with(".jar") {
+            jars.push(name);
+        }
+    }
+    jars.sort();
+    Ok(jars)
+}
+
+/// Updates the editable launch settings (Phase 7 Configuration tab): JAR,
+/// JVM/server arguments, RAM, and auto-start/auto-restart. Java executable
+/// selection has its own command (`set_instance_java`).
+#[tauri::command]
+pub async fn update_instance_settings(
+    state: State<'_, AppState>,
+    id: String,
+    request: UpdateInstanceSettingsRequest,
+) -> Result<Instance, String> {
+    if request.min_ram_mb <= 0 || request.max_ram_mb <= 0 || request.min_ram_mb > request.max_ram_mb {
+        return Err("Minimum RAM must be positive and not exceed maximum RAM".to_string());
+    }
+
+    let jvm_args = serde_json::to_string(&request.jvm_args).unwrap_or_else(|_| "[]".to_string());
+    let server_args = serde_json::to_string(&request.server_args).unwrap_or_else(|_| "[]".to_string());
+
+    let result = sqlx::query(
+        "UPDATE instances
+         SET server_jar = ?, jvm_args = ?, server_args = ?, min_ram_mb = ?, max_ram_mb = ?,
+             auto_start = ?, auto_restart = ?
+         WHERE id = ?",
+    )
+    .bind(&request.server_jar)
+    .bind(jvm_args)
+    .bind(server_args)
+    .bind(request.min_ram_mb)
+    .bind(request.max_ram_mb)
+    .bind(request.auto_start as i64)
+    .bind(request.auto_restart as i64)
+    .bind(&id)
+    .execute(&state.db)
+    .await
+    .map_err(|e| format!("Failed to update instance settings: {e}"))?;
+
+    if result.rows_affected() == 0 {
+        return Err("Instance not found".to_string());
+    }
+
+    let instance = fetch_instance(&state, &id)
+        .await?
+        .ok_or_else(|| "Instance not found".to_string())?;
+
+    if let Err(e) = write_instance_json(Path::new(&instance.server_directory), &instance).await {
+        tracing::warn!("Instance {id} settings updated, but instance.json update failed: {e}");
     }
 
     Ok(instance)
@@ -214,8 +295,8 @@ pub(crate) async fn insert_instance(
     sqlx::query(
         "INSERT INTO instances (id, name, minecraft_version, loader, loader_version, java_installation_id,
                                  min_ram_mb, max_ram_mb, server_directory, server_jar, jvm_args, server_args,
-                                 status, auto_start, auto_restart, created_at, last_launched_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                                 status, auto_start, auto_restart, created_at, last_launched_at, wallpaper_path)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&instance.id)
     .bind(&instance.name)
@@ -234,6 +315,7 @@ pub(crate) async fn insert_instance(
     .bind(instance.auto_restart as i64)
     .bind(instance.created_at)
     .bind(instance.last_launched_at)
+    .bind(&instance.wallpaper_path)
     .execute(&state.db)
     .await
     .map_err(|e| format!("Failed to save instance: {e}"))?;

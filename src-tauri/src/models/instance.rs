@@ -99,6 +99,10 @@ pub struct Instance {
     pub auto_restart: bool,
     pub created_at: DateTime<Utc>,
     pub last_launched_at: Option<DateTime<Utc>>,
+    /// Absolute path to a copied-in background image, if the user set one.
+    /// Served to the frontend as a data URI via `read_instance_wallpaper`
+    /// rather than a raw filesystem path.
+    pub wallpaper_path: Option<String>,
 }
 
 /// Raw row shape as stored in SQLite. Kept separate from [`Instance`] because
@@ -123,6 +127,7 @@ pub struct InstanceRow {
     pub auto_restart: i64,
     pub created_at: DateTime<Utc>,
     pub last_launched_at: Option<DateTime<Utc>>,
+    pub wallpaper_path: Option<String>,
 }
 
 /// Input for creating a new instance manually (Phase 2). The importer
@@ -137,6 +142,22 @@ pub struct CreateInstanceRequest {
     pub loader_version: Option<String>,
     pub min_ram_mb: Option<i64>,
     pub max_ram_mb: Option<i64>,
+}
+
+/// Input for `update_instance_settings` (Phase 7 - the Configuration tab).
+/// Every field is required in the request even though each maps to an
+/// always-present column: the frontend always submits the full form, so
+/// there's no ambiguity between "leave unchanged" and "clear it" to model.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateInstanceSettingsRequest {
+    pub server_jar: Option<String>,
+    pub jvm_args: Vec<String>,
+    pub server_args: Vec<String>,
+    pub min_ram_mb: i64,
+    pub max_ram_mb: i64,
+    pub auto_start: bool,
+    pub auto_restart: bool,
 }
 
 impl From<InstanceRow> for Instance {
@@ -159,6 +180,7 @@ impl From<InstanceRow> for Instance {
             auto_restart: row.auto_restart != 0,
             created_at: row.created_at,
             last_launched_at: row.last_launched_at,
+            wallpaper_path: row.wallpaper_path,
         }
     }
 }

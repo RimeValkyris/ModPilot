@@ -16,6 +16,7 @@ export function useInstances() {
     importInstance,
     renameInstance,
     setInstanceJava,
+    updateInstanceSettings,
     deleteInstance,
   } = useInstancesStore();
 
@@ -32,6 +33,7 @@ export function useInstances() {
     importInstance,
     renameInstance,
     setInstanceJava,
+    updateInstanceSettings,
     deleteInstance,
   };
 }

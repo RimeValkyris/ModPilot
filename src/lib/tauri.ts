@@ -1,5 +1,9 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { CreateInstanceRequest, Instance } from "@/types/instance";
+import type {
+  CreateInstanceRequest,
+  Instance,
+  UpdateInstanceSettingsRequest,
+} from "@/types/instance";
 import type {
   DetectedServerInfo,
   ImportInstanceRequest,
@@ -48,4 +52,19 @@ export const api = {
 
   sendConsoleCommand: (id: string, command: string) =>
     invoke<void>("send_console_command", { id, command }),
+
+  readLatestLog: (id: string) => invoke<string>("read_latest_log", { id }),
+
+  listServerJars: (id: string) => invoke<string[]>("list_server_jars", { id }),
+
+  updateInstanceSettings: (id: string, request: UpdateInstanceSettingsRequest) =>
+    invoke<Instance>("update_instance_settings", { id, request }),
+
+  setInstanceWallpaper: (id: string, sourcePath: string) =>
+    invoke<void>("set_instance_wallpaper", { id, sourcePath }),
+
+  clearInstanceWallpaper: (id: string) => invoke<void>("clear_instance_wallpaper", { id }),
+
+  readInstanceWallpaper: (id: string) =>
+    invoke<string | null>("read_instance_wallpaper", { id }),
 };

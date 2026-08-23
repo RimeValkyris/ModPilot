@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { MoreVertical, OctagonX, Pencil, Play, RotateCw, Square, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -38,36 +39,19 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useInstances } from "@/hooks/useInstances";
 import { useJavaStore } from "@/stores/javaStore";
+import { useWallpaperStore } from "@/stores/wallpaperStore";
 import { api } from "@/lib/tauri";
-import type { Instance, ServerStatus } from "@/types/instance";
+import { STATUS_DOT, STATUS_LABEL } from "@/lib/serverStatus";
+import type { Instance } from "@/types/instance";
 
 const NO_JAVA_VALUE = "__none__";
 
-const STATUS_LABEL: Record<ServerStatus, string> = {
-  stopped: "STOPPED",
-  starting: "STARTING",
-  running: "RUNNING",
-  stopping: "STOPPING",
-  crashed: "CRASHED",
-};
-
-const STATUS_DOT: Record<ServerStatus, string> = {
-  stopped: "bg-muted-foreground",
-  starting: "bg-yellow-500",
-  running: "bg-green-500",
-  stopping: "bg-yellow-500",
-  crashed: "bg-destructive",
-};
-
-function notImplemented(feature: string) {
-  toast.info(`${feature} isn't implemented yet`, {
-    description: "This will be wired up in an upcoming phase.",
-  });
-}
-
 export function InstanceCard({ instance }: { instance: Instance }) {
+  const navigate = useNavigate();
   const { renameInstance, deleteInstance, setInstanceJava } = useInstances();
   const { installations, fetchInstallations } = useJavaStore();
+  const { wallpapers, fetchWallpaper } = useWallpaperStore();
+  const wallpaper = wallpapers[instance.id];
   const [renameOpen, setRenameOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [nameDraft, setNameDraft] = useState(instance.name);
@@ -79,6 +63,10 @@ export function InstanceCard({ instance }: { instance: Instance }) {
   useEffect(() => {
     fetchInstallations();
   }, [fetchInstallations]);
+
+  useEffect(() => {
+    fetchWallpaper(instance.id);
+  }, [instance.id, fetchWallpaper]);
 
   async function runProcessAction(action: () => Promise<void>, failureMessage: string) {
     setIsProcessActionPending(true);
@@ -131,7 +119,18 @@ export function InstanceCard({ instance }: { instance: Instance }) {
   }
 
   return (
-    <li className="flex flex-col gap-3 rounded-xl border border-border bg-card p-4">
+    <li
+      className="relative flex flex-col gap-3 overflow-hidden rounded-xl border border-border bg-card p-4"
+      style={
+        wallpaper
+          ? {
+              backgroundImage: `linear-gradient(to bottom, rgba(0,0,0,0.35), var(--card) 85%), url(${wallpaper})`,
+              backgroundSize: "cover",
+              backgroundPosition: "center",
+            }
+          : undefined
+      }
+    >
       <div className="flex items-start justify-between gap-2">
         <div>
           <p className="font-medium">{instance.name}</p>
@@ -258,7 +257,7 @@ export function InstanceCard({ instance }: { instance: Instance }) {
           variant="outline"
           size="sm"
           className="flex-1"
-          onClick={() => notImplemented("Console")}
+          onClick={() => navigate(`/instances/${instance.id}/console`)}
         >
           Console
         </Button>
@@ -266,7 +265,7 @@ export function InstanceCard({ instance }: { instance: Instance }) {
           variant="outline"
           size="sm"
           className="flex-1"
-          onClick={() => notImplemented("Manage")}
+          onClick={() => navigate(`/instances/${instance.id}`)}
         >
           Manage
         </Button>

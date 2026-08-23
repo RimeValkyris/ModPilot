@@ -4,6 +4,7 @@ import { Dashboard } from "@/features/dashboard/Dashboard";
 import { ServersPage } from "@/features/servers/ServersPage";
 import { JavaPage } from "@/features/java/JavaPage";
 import { SettingsPage } from "@/features/settings/SettingsPage";
+import { InstanceDetailPage } from "@/features/console/InstanceDetailPage";
 import { Toaster } from "@/components/ui/sonner";
 
 // HashRouter (not BrowserRouter): ModForge is served from the filesystem via
@@ -16,6 +17,8 @@ function App() {
         <Route element={<AppLayout />}>
           <Route index element={<Dashboard />} />
           <Route path="servers" element={<ServersPage />} />
+          <Route path="instances/:id" element={<InstanceDetailPage />} />
+          <Route path="instances/:id/:tab" element={<InstanceDetailPage />} />
           <Route path="java" element={<JavaPage />} />
           <Route path="settings" element={<SettingsPage />} />
         </Route>

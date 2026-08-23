@@ -1,6 +1,11 @@
 import { create } from "zustand";
 import { api } from "@/lib/tauri";
-import type { CreateInstanceRequest, Instance, ServerStatus } from "@/types/instance";
+import type {
+  CreateInstanceRequest,
+  Instance,
+  ServerStatus,
+  UpdateInstanceSettingsRequest,
+} from "@/types/instance";
 import type { ImportInstanceRequest, ImportSource } from "@/types/import";
 
 interface InstancesState {
@@ -15,6 +20,10 @@ interface InstancesState {
   ) => Promise<Instance>;
   renameInstance: (id: string, newName: string) => Promise<Instance>;
   setInstanceJava: (id: string, javaInstallationId: string | null) => Promise<Instance>;
+  updateInstanceSettings: (
+    id: string,
+    request: UpdateInstanceSettingsRequest,
+  ) => Promise<Instance>;
   deleteInstance: (id: string) => Promise<void>;
   /** Applied from the `instance-status-changed` Tauri event. */
   applyStatusUpdate: (id: string, status: ServerStatus) => void;
@@ -57,6 +66,14 @@ export const useInstancesStore = create<InstancesState>((set, get) => ({
 
   setInstanceJava: async (id, javaInstallationId) => {
     const updated = await api.setInstanceJava(id, javaInstallationId);
+    set({
+      instances: get().instances.map((i) => (i.id === id ? updated : i)),
+    });
+    return updated;
+  },
+
+  updateInstanceSettings: async (id, request) => {
+    const updated = await api.updateInstanceSettings(id, request);
     set({
       instances: get().instances.map((i) => (i.id === id ? updated : i)),
     });

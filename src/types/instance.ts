@@ -37,6 +37,18 @@ export interface Instance {
   autoRestart: boolean;
   createdAt: string;
   lastLaunchedAt: string | null;
+  wallpaperPath: string | null;
+}
+
+/** Input for `update_instance_settings` (Configuration tab). */
+export interface UpdateInstanceSettingsRequest {
+  serverJar: string | null;
+  jvmArgs: string[];
+  serverArgs: string[];
+  minRamMb: number;
+  maxRamMb: number;
+  autoStart: boolean;
+  autoRestart: boolean;
 }
 
 /** Input for `create_instance`. Mirrors Rust's `CreateInstanceRequest`. */

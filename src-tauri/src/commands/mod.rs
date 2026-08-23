@@ -4,4 +4,6 @@
 pub mod import;
 pub mod instance;
 pub mod java;
+pub mod logs;
 pub mod server;
+pub mod wallpaper;
