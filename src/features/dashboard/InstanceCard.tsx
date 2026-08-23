@@ -1,9 +1,17 @@
+import { useEffect } from "react";
 import { useState } from "react";
 import { toast } from "sonner";
-import { MoreVertical, Pencil, Trash2 } from "lucide-react";
+import { MoreVertical, OctagonX, Pencil, Play, RotateCw, Square, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -29,7 +37,11 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { useInstances } from "@/hooks/useInstances";
+import { useJavaStore } from "@/stores/javaStore";
+import { api } from "@/lib/tauri";
 import type { Instance, ServerStatus } from "@/types/instance";
+
+const NO_JAVA_VALUE = "__none__";
 
 const STATUS_LABEL: Record<ServerStatus, string> = {
   stopped: "STOPPED",
@@ -54,11 +66,38 @@ function notImplemented(feature: string) {
 }
 
 export function InstanceCard({ instance }: { instance: Instance }) {
-  const { renameInstance, deleteInstance } = useInstances();
+  const { renameInstance, deleteInstance, setInstanceJava } = useInstances();
+  const { installations, fetchInstallations } = useJavaStore();
   const [renameOpen, setRenameOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [nameDraft, setNameDraft] = useState(instance.name);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isProcessActionPending, setIsProcessActionPending] = useState(false);
+
+  const canDelete = instance.status === "stopped" || instance.status === "crashed";
+
+  useEffect(() => {
+    fetchInstallations();
+  }, [fetchInstallations]);
+
+  async function runProcessAction(action: () => Promise<void>, failureMessage: string) {
+    setIsProcessActionPending(true);
+    try {
+      await action();
+    } catch (err) {
+      toast.error(failureMessage, { description: String(err) });
+    } finally {
+      setIsProcessActionPending(false);
+    }
+  }
+
+  async function handleJavaChange(value: string | null) {
+    try {
+      await setInstanceJava(instance.id, value && value !== NO_JAVA_VALUE ? value : null);
+    } catch (err) {
+      toast.error("Failed to set Java", { description: String(err) });
+    }
+  }
 
   async function handleRename(e: React.FormEvent) {
     e.preventDefault();
@@ -109,8 +148,23 @@ export function InstanceCard({ instance }: { instance: Instance }) {
               <Pencil />
               Rename
             </DropdownMenuItem>
+            {(instance.status === "running" || instance.status === "stopping") && (
+              <DropdownMenuItem
+                variant="destructive"
+                onClick={() =>
+                  runProcessAction(
+                    () => api.forceStopInstance(instance.id),
+                    "Failed to force stop instance",
+                  )
+                }
+              >
+                <OctagonX />
+                Force Stop
+              </DropdownMenuItem>
+            )}
             <DropdownMenuItem
               variant="destructive"
+              disabled={!canDelete}
               onClick={() => setDeleteOpen(true)}
             >
               <Trash2 />
@@ -123,6 +177,80 @@ export function InstanceCard({ instance }: { instance: Instance }) {
       <div className="flex items-center gap-1.5">
         <span className={`size-2 rounded-full ${STATUS_DOT[instance.status]}`} />
         <Badge variant="outline">{STATUS_LABEL[instance.status]}</Badge>
+      </div>
+
+      <Select
+        value={instance.javaInstallationId ?? NO_JAVA_VALUE}
+        onValueChange={handleJavaChange}
+      >
+        <SelectTrigger className="w-full" size="sm">
+          <SelectValue placeholder="No Java selected" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value={NO_JAVA_VALUE}>No Java selected</SelectItem>
+          {installations.map((java) => (
+            <SelectItem key={java.id} value={java.id}>
+              Java {java.version} ({java.architecture})
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+
+      <div className="flex gap-2">
+        {(instance.status === "stopped" || instance.status === "crashed") && (
+          <Button
+            size="sm"
+            className="flex-1"
+            disabled={isProcessActionPending}
+            onClick={() =>
+              runProcessAction(() => api.startInstance(instance.id), "Failed to start instance")
+            }
+          >
+            <Play />
+            Start
+          </Button>
+        )}
+        {instance.status === "starting" && (
+          <Button size="sm" className="flex-1" disabled>
+            Starting…
+          </Button>
+        )}
+        {instance.status === "running" && (
+          <>
+            <Button
+              variant="outline"
+              size="sm"
+              className="flex-1"
+              disabled={isProcessActionPending}
+              onClick={() =>
+                runProcessAction(() => api.stopInstance(instance.id), "Failed to stop instance")
+              }
+            >
+              <Square />
+              Stop
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="flex-1"
+              disabled={isProcessActionPending}
+              onClick={() =>
+                runProcessAction(
+                  () => api.restartInstance(instance.id),
+                  "Failed to restart instance",
+                )
+              }
+            >
+              <RotateCw />
+              Restart
+            </Button>
+          </>
+        )}
+        {instance.status === "stopping" && (
+          <Button variant="outline" size="sm" className="flex-1" disabled>
+            Stopping…
+          </Button>
+        )}
       </div>
 
       <div className="flex gap-2">

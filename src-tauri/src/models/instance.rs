@@ -2,7 +2,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 /// The mod loader / server flavor an instance runs.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ServerLoader {
     Vanilla,
@@ -10,6 +10,7 @@ pub enum ServerLoader {
     NeoForge,
     Fabric,
     Quilt,
+    #[default]
     Unknown,
 }
 

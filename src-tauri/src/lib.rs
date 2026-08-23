@@ -1,8 +1,11 @@
 mod commands;
 mod database;
 mod filesystem;
+mod importer;
+mod java;
 mod logging;
 mod models;
+mod server;
 
 use filesystem::AppPaths;
 use sqlx::SqlitePool;
@@ -12,12 +15,14 @@ use tauri::Manager;
 pub struct AppState {
     pub db: SqlitePool,
     pub paths: AppPaths,
+    pub processes: server::ProcessManager,
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let handle = app.handle().clone();
 
@@ -36,7 +41,11 @@ pub fn run() {
             // step so every command that runs afterward can assume the DB is ready.
             let db = tauri::async_runtime::block_on(database::init_pool(&paths.db_path))?;
 
-            app.manage(AppState { db, paths });
+            app.manage(AppState {
+                db,
+                paths,
+                processes: server::ProcessManager::new(),
+            });
 
             Ok(())
         })
@@ -45,6 +54,17 @@ pub fn run() {
             commands::instance::create_instance,
             commands::instance::rename_instance,
             commands::instance::delete_instance,
+            commands::instance::set_instance_java,
+            commands::import::analyze_import,
+            commands::import::import_instance,
+            commands::java::list_java_installations,
+            commands::java::detect_java_installations,
+            commands::java::set_default_java,
+            commands::server::start_instance,
+            commands::server::stop_instance,
+            commands::server::force_stop_instance,
+            commands::server::restart_instance,
+            commands::server::send_console_command,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

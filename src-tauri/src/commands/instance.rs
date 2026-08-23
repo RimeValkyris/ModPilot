@@ -133,6 +133,30 @@ pub async fn rename_instance(
     Ok(instance)
 }
 
+/// Assigns (or clears, with `java_installation_id: None`) which detected
+/// Java installation an instance launches with.
+#[tauri::command]
+pub async fn set_instance_java(
+    state: State<'_, AppState>,
+    id: String,
+    java_installation_id: Option<String>,
+) -> Result<Instance, String> {
+    let result = sqlx::query("UPDATE instances SET java_installation_id = ? WHERE id = ?")
+        .bind(&java_installation_id)
+        .bind(&id)
+        .execute(&state.db)
+        .await
+        .map_err(|e| format!("Failed to set instance Java: {e}"))?;
+
+    if result.rows_affected() == 0 {
+        return Err("Instance not found".to_string());
+    }
+
+    fetch_instance(&state, &id)
+        .await?
+        .ok_or_else(|| "Instance not found".to_string())
+}
+
 /// Deletes an instance's DB record and its entire on-disk directory,
 /// including the world, mods, and logs it contains.
 ///
@@ -140,6 +164,10 @@ pub async fn rename_instance(
 /// not ask again and cannot be undone.
 #[tauri::command]
 pub async fn delete_instance(state: State<'_, AppState>, id: String) -> Result<(), String> {
+    if state.processes.is_running(&id).await {
+        return Err("Stop the instance before deleting it".to_string());
+    }
+
     let instance = fetch_instance(&state, &id)
         .await?
         .ok_or_else(|| "Instance not found".to_string())?;
@@ -160,7 +188,10 @@ pub async fn delete_instance(state: State<'_, AppState>, id: String) -> Result<(
     Ok(())
 }
 
-async fn fetch_instance(state: &State<'_, AppState>, id: &str) -> Result<Option<Instance>, String> {
+pub(crate) async fn fetch_instance(
+    state: &State<'_, AppState>,
+    id: &str,
+) -> Result<Option<Instance>, String> {
     let row = sqlx::query_as::<_, InstanceRow>(&format!(
         "SELECT {INSTANCE_COLUMNS} FROM instances WHERE id = ?"
     ))
@@ -172,7 +203,10 @@ async fn fetch_instance(state: &State<'_, AppState>, id: &str) -> Result<Option<
     Ok(row.map(Instance::from))
 }
 
-async fn insert_instance(state: &State<'_, AppState>, instance: &Instance) -> Result<(), String> {
+pub(crate) async fn insert_instance(
+    state: &State<'_, AppState>,
+    instance: &Instance,
+) -> Result<(), String> {
     let jvm_args = serde_json::to_string(&instance.jvm_args).unwrap_or_else(|_| "[]".to_string());
     let server_args =
         serde_json::to_string(&instance.server_args).unwrap_or_else(|_| "[]".to_string());
@@ -212,7 +246,10 @@ async fn insert_instance(state: &State<'_, AppState>, instance: &Instance) -> Re
 /// SQLite remains the source of truth the app reads from; this file exists
 /// so an instance folder is self-describing if copied or inspected outside
 /// the app.
-async fn write_instance_json(server_directory: &Path, instance: &Instance) -> std::io::Result<()> {
+pub(crate) async fn write_instance_json(
+    server_directory: &Path,
+    instance: &Instance,
+) -> std::io::Result<()> {
     let json = serde_json::to_string_pretty(instance)
         .map_err(|e| std::io::Error::other(format!("Failed to serialize instance.json: {e}")))?;
     tokio::fs::write(server_directory.join("instance.json"), json).await

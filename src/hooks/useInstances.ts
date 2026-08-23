@@ -13,7 +13,9 @@ export function useInstances() {
     error,
     fetchInstances,
     createInstance,
+    importInstance,
     renameInstance,
+    setInstanceJava,
     deleteInstance,
   } = useInstancesStore();
 
@@ -27,7 +29,9 @@ export function useInstances() {
     error,
     refetch: fetchInstances,
     createInstance,
+    importInstance,
     renameInstance,
+    setInstanceJava,
     deleteInstance,
   };
 }
