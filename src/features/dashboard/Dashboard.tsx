@@ -1,7 +1,9 @@
 import { toast } from "sonner";
-import { PackagePlus, Plus, Server as ServerIcon } from "lucide-react";
+import { PackagePlus, Server as ServerIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useInstances } from "@/hooks/useInstances";
+import { CreateInstanceDialog } from "@/features/dashboard/CreateInstanceDialog";
+import { InstanceCard } from "@/features/dashboard/InstanceCard";
 
 function notImplemented(feature: string) {
   toast.info(`${feature} isn't implemented yet`, {
@@ -43,16 +45,7 @@ export function Dashboard() {
       ) : (
         <ul className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           {instances.map((instance) => (
-            <li
-              key={instance.id}
-              className="rounded-xl border border-border bg-card p-4"
-            >
-              <p className="font-medium">{instance.name}</p>
-              <p className="text-sm text-muted-foreground">
-                {instance.minecraftVersion ?? "Unknown version"} ·{" "}
-                {instance.loader}
-              </p>
-            </li>
+            <InstanceCard key={instance.id} instance={instance} />
           ))}
         </ul>
       )}
@@ -62,10 +55,7 @@ export function Dashboard() {
           <PackagePlus />
           Import Server
         </Button>
-        <Button variant="outline" onClick={() => notImplemented("Create Server")}>
-          <Plus />
-          Create Server
-        </Button>
+        <CreateInstanceDialog />
       </div>
     </div>
   );

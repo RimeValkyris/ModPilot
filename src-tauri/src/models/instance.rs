@@ -124,6 +124,20 @@ pub struct InstanceRow {
     pub last_launched_at: Option<DateTime<Utc>>,
 }
 
+/// Input for creating a new instance manually (Phase 2). The importer
+/// (Phase 3) will have its own request shape, since detected values there
+/// come from the imported files rather than a form.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateInstanceRequest {
+    pub name: String,
+    pub minecraft_version: Option<String>,
+    pub loader: Option<ServerLoader>,
+    pub loader_version: Option<String>,
+    pub min_ram_mb: Option<i64>,
+    pub max_ram_mb: Option<i64>,
+}
+
 impl From<InstanceRow> for Instance {
     fn from(row: InstanceRow) -> Self {
         Instance {

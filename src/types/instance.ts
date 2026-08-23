@@ -38,3 +38,21 @@ export interface Instance {
   createdAt: string;
   lastLaunchedAt: string | null;
 }
+
+/** Input for `create_instance`. Mirrors Rust's `CreateInstanceRequest`. */
+export interface CreateInstanceRequest {
+  name: string;
+  minecraftVersion?: string | null;
+  loader?: ServerLoader | null;
+  loaderVersion?: string | null;
+  minRamMb?: number | null;
+  maxRamMb?: number | null;
+}
+
+export const SERVER_LOADERS: ServerLoader[] = [
+  "vanilla",
+  "forge",
+  "neoforge",
+  "fabric",
+  "quilt",
+];
