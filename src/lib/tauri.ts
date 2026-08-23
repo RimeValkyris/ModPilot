@@ -11,6 +11,8 @@ import type {
 } from "@/types/import";
 import type { JavaInstallation } from "@/types/java";
 import type { ResourceUsage } from "@/types/monitor";
+import type { WorldBackup } from "@/types/backup";
+import type { ModInfo } from "@/types/mod";
 
 /**
  * Thin wrapper around Tauri's `invoke` calls. Keeping every command call in
@@ -81,4 +83,32 @@ export const api = {
     invoke<void>("export_instance_log", { id, destPath }),
 
   getInstanceLogsDir: (id: string) => invoke<string>("get_instance_logs_dir", { id }),
+
+  duplicateInstance: (id: string, newName: string) =>
+    invoke<Instance>("duplicate_instance", { id, newName }),
+
+  getInstanceSubfolder: (id: string, folder: "server" | "mods" | "config" | "world") =>
+    invoke<string>("get_instance_subfolder", { id, folder }),
+
+  createWorldBackup: (id: string) => invoke<string>("create_world_backup", { id }),
+
+  listWorldBackups: (id: string) => invoke<WorldBackup[]>("list_world_backups", { id }),
+
+  restoreWorldBackup: (id: string, backupName: string) =>
+    invoke<void>("restore_world_backup", { id, backupName }),
+
+  deleteWorldBackup: (id: string, backupName: string) =>
+    invoke<void>("delete_world_backup", { id, backupName }),
+
+  readPlayerList: (id: string, file: string) =>
+    invoke<unknown[]>("read_player_list", { id, file }),
+
+  writePlayerList: (id: string, file: string, entries: unknown[]) =>
+    invoke<void>("write_player_list", { id, file, entries }),
+
+  listMods: (id: string) => invoke<ModInfo[]>("list_mods", { id }),
+
+  toggleMod: (id: string, fileName: string) => invoke<void>("toggle_mod", { id, fileName }),
+
+  deleteMod: (id: string, fileName: string) => invoke<void>("delete_mod", { id, fileName }),
 };

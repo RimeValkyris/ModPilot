@@ -5,6 +5,7 @@ use tauri::State;
 use uuid::Uuid;
 
 use crate::filesystem::sanitize_dir_name;
+use crate::importer;
 use crate::models::{
     CreateInstanceRequest, Instance, InstanceRow, ServerLoader, ServerStatus,
     UpdateInstanceSettingsRequest,
@@ -96,6 +97,101 @@ pub async fn create_instance(
 
     if let Err(e) = write_instance_json(Path::new(&instance.server_directory), &instance).await {
         tracing::warn!("Instance {} created, but instance.json failed: {e}", instance.id);
+    }
+
+    Ok(instance)
+}
+
+/// Creates a new instance by copying an existing one's server files
+/// (mods, config, world, everything under `server/`) and settings -
+/// logs and backups are deliberately not copied, so the clone starts clean.
+#[tauri::command]
+pub async fn duplicate_instance(
+    state: State<'_, AppState>,
+    id: String,
+    new_name: String,
+) -> Result<Instance, String> {
+    let source = fetch_instance(&state, &id)
+        .await?
+        .ok_or_else(|| "Instance not found".to_string())?;
+
+    let new_name = new_name.trim().to_string();
+    if new_name.is_empty() {
+        return Err("Instance name cannot be empty".to_string());
+    }
+
+    let dir_name = sanitize_dir_name(&new_name);
+    let new_dir = state.paths.instances_dir.join(&dir_name);
+    if new_dir.exists() {
+        return Err(format!(
+            "An instance folder named \"{dir_name}\" already exists. Choose a different name."
+        ));
+    }
+
+    let source_server_dir = Path::new(&source.server_directory).join("server");
+    let new_server_dir = new_dir.join("server");
+    tokio::fs::create_dir_all(&new_server_dir)
+        .await
+        .map_err(|e| format!("Failed to create instance directory: {e}"))?;
+    tokio::fs::create_dir_all(new_dir.join("logs"))
+        .await
+        .map_err(|e| format!("Failed to create logs directory: {e}"))?;
+
+    {
+        let source_server_dir = source_server_dir.clone();
+        let new_server_dir = new_server_dir.clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            importer::copy_dir_recursive(&source_server_dir, &new_server_dir)
+        })
+        .await
+        .map_err(|e| format!("Copy task failed: {e}"))?
+        .map_err(|e| format!("Failed to copy server files: {e}"))?;
+    }
+
+    let wallpaper_path = if let Some(src_wallpaper) = &source.wallpaper_path {
+        let ext = Path::new(src_wallpaper)
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("png");
+        let dest = new_dir.join(format!("wallpaper.{ext}"));
+        match tokio::fs::copy(src_wallpaper, &dest).await {
+            Ok(_) => Some(dest.to_string_lossy().to_string()),
+            Err(_) => None,
+        }
+    } else {
+        None
+    };
+
+    let instance = Instance {
+        id: Uuid::new_v4().to_string(),
+        name: new_name,
+        minecraft_version: source.minecraft_version.clone(),
+        loader: source.loader,
+        loader_version: source.loader_version.clone(),
+        java_installation_id: source.java_installation_id.clone(),
+        min_ram_mb: source.min_ram_mb,
+        max_ram_mb: source.max_ram_mb,
+        server_directory: new_dir.to_string_lossy().to_string(),
+        server_jar: source.server_jar.clone(),
+        jvm_args: source.jvm_args.clone(),
+        server_args: source.server_args.clone(),
+        status: ServerStatus::Stopped,
+        // Deliberately not carried over: a clone auto-starting alongside
+        // its source the next time ModForge opens would be surprising.
+        auto_start: false,
+        auto_restart: source.auto_restart,
+        created_at: Utc::now(),
+        last_launched_at: None,
+        wallpaper_path,
+    };
+
+    if let Err(e) = insert_instance(&state, &instance).await {
+        let _ = tokio::fs::remove_dir_all(&new_dir).await;
+        return Err(e);
+    }
+
+    if let Err(e) = write_instance_json(&new_dir, &instance).await {
+        tracing::warn!("Instance {} duplicated, but instance.json failed: {e}", instance.id);
     }
 
     Ok(instance)

@@ -11,17 +11,20 @@ import { Console } from "@/features/console/Console";
 import { InstanceSettingsForm } from "@/features/settings/InstanceSettingsForm";
 import { ResourceUsageRow } from "@/features/dashboard/ResourceUsageRow";
 import { InstanceLogsTab } from "@/features/console/InstanceLogsTab";
+import { InstanceFilesTab } from "@/features/console/InstanceFilesTab";
+import { InstanceModsTab } from "@/features/console/InstanceModsTab";
+import { InstancePlayersTab } from "@/features/console/InstancePlayersTab";
 
-const TABS = ["overview", "console", "files", "mods", "configuration", "logs"] as const;
+const TABS = [
+  "overview",
+  "console",
+  "files",
+  "mods",
+  "players",
+  "configuration",
+  "logs",
+] as const;
 type Tab = (typeof TABS)[number];
-
-function ComingSoon({ label }: { label: string }) {
-  return (
-    <div className="rounded-xl border border-dashed border-border bg-card px-6 py-16 text-center text-sm text-muted-foreground">
-      {label} is coming in a later phase.
-    </div>
-  );
-}
 
 export function InstanceDetailPage() {
   const { id, tab } = useParams<{ id: string; tab?: string }>();
@@ -98,6 +101,7 @@ export function InstanceDetailPage() {
           <TabsTrigger value="console">Console</TabsTrigger>
           <TabsTrigger value="files">Files</TabsTrigger>
           <TabsTrigger value="mods">Mods</TabsTrigger>
+          <TabsTrigger value="players">Players</TabsTrigger>
           <TabsTrigger value="configuration">Configuration</TabsTrigger>
           <TabsTrigger value="logs">Logs</TabsTrigger>
         </TabsList>
@@ -157,10 +161,13 @@ export function InstanceDetailPage() {
         </TabsContent>
 
         <TabsContent value="files">
-          <ComingSoon label="File management" />
+          <InstanceFilesTab instance={instance} />
         </TabsContent>
         <TabsContent value="mods">
-          <ComingSoon label="Mod management" />
+          <InstanceModsTab instance={instance} />
+        </TabsContent>
+        <TabsContent value="players">
+          <InstancePlayersTab instanceId={instance.id} />
         </TabsContent>
         <TabsContent value="configuration">
           <InstanceSettingsForm instance={instance} />

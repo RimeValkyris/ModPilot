@@ -5,7 +5,8 @@ use std::sync::Arc;
 
 use chrono::Utc;
 use sqlx::SqlitePool;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
+use tauri_plugin_notification::NotificationExt;
 use tokio::fs::File;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::ChildStdin;
@@ -13,6 +14,7 @@ use tokio::sync::{mpsc, Mutex};
 
 use super::events::{LogLinePayload, StatusChangedPayload, LOG_EVENT, STATUS_EVENT};
 use crate::models::ServerStatus;
+use crate::AppState;
 
 /// Substring vanilla, Forge, NeoForge, Fabric, and Quilt servers all print
 /// once world loading finishes and the server is ready for players/commands.
@@ -49,6 +51,34 @@ pub async fn set_status(
             status,
         },
     );
+
+    // Only the two states worth interrupting the user for - not every
+    // Starting/Stopping blip, which happens on every routine restart.
+    if matches!(status, ServerStatus::Running | ServerStatus::Crashed) {
+        notify_status(app, db, instance_id, status).await;
+    }
+}
+
+async fn notify_status(app: &AppHandle, db: &SqlitePool, instance_id: &str, status: ServerStatus) {
+    let name: Option<String> = sqlx::query_scalar("SELECT name FROM instances WHERE id = ?")
+        .bind(instance_id)
+        .fetch_optional(db)
+        .await
+        .unwrap_or_default();
+    let name = name.unwrap_or_else(|| "Instance".to_string());
+
+    let body = match status {
+        ServerStatus::Running => format!("{name} finished starting and is ready."),
+        ServerStatus::Crashed => format!("{name} crashed. Check its console or logs."),
+        _ => return,
+    };
+
+    let _ = app
+        .notification()
+        .builder()
+        .title("ModForge")
+        .body(body)
+        .show();
 }
 
 /// Launches `java <jvm_args> -jar <server_jar> <server_args>` as a managed
@@ -164,10 +194,57 @@ pub async fn spawn_server_process(
             tracing::error!("Failed to close launch_history row: {e}");
         }
 
+        // Must happen before `set_status`/auto-restart: `start_instance`
+        // refuses to run while an entry for this id still exists, so a
+        // crash-triggered auto-restart would otherwise always fail.
+        app.state::<AppState>().processes.remove(&instance_id).await;
+
         set_status(&app, &db, &instance_id, final_status).await;
+
+        if final_status == ServerStatus::Crashed {
+            maybe_auto_restart(app, db, instance_id).await;
+        }
     });
 
     Ok(SpawnedServer { stdin, kill_tx, pid })
+}
+
+/// If the instance that just crashed has `auto_restart` set, relaunches it
+/// after a short delay - long enough to avoid hammering a server that
+/// fails to start at all into a tight crash loop.
+///
+/// Returns a boxed future (rather than being `async fn`) deliberately: this
+/// calls into `commands::server::start_instance`, which calls back into
+/// `spawn_server_process` above, and `async fn` return types are opaque -
+/// without boxing, the compiler can't resolve the resulting auto-trait
+/// cycle (`error[E0391]`) between the two functions' generated futures.
+fn maybe_auto_restart(
+    app: AppHandle,
+    db: SqlitePool,
+    instance_id: String,
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> {
+    Box::pin(async move {
+        let auto_restart: Option<i64> =
+            sqlx::query_scalar("SELECT auto_restart FROM instances WHERE id = ?")
+                .bind(&instance_id)
+                .fetch_optional(&db)
+                .await
+                .unwrap_or_default();
+
+        if auto_restart != Some(1) {
+            return;
+        }
+
+        tracing::info!("Auto-restarting crashed instance {instance_id}");
+        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+
+        let state = app.state::<AppState>();
+        if let Err(e) =
+            crate::commands::server::start_instance(app.clone(), state, instance_id.clone()).await
+        {
+            tracing::error!("Auto-restart failed for instance {instance_id}: {e}");
+        }
+    })
 }
 
 #[allow(clippy::too_many_arguments)]

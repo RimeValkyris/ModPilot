@@ -24,6 +24,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_notification::init())
         .setup(|app| {
             let handle = app.handle().clone();
 
@@ -56,6 +57,29 @@ pub fn run() {
                 resource_monitor: server::ResourceMonitor::new(),
             });
 
+            // Launch any instance marked auto-start, once the window/state
+            // are ready. Fire-and-forget: a failure here (e.g. a missing
+            // JAR) shouldn't block ModForge from opening.
+            let auto_start_handle = handle.clone();
+            tauri::async_runtime::spawn(async move {
+                let db = &auto_start_handle.state::<AppState>().db;
+                let ids: Vec<String> =
+                    sqlx::query_scalar("SELECT id FROM instances WHERE auto_start = 1")
+                        .fetch_all(db)
+                        .await
+                        .unwrap_or_default();
+
+                for id in ids {
+                    let handle = auto_start_handle.clone();
+                    let state = handle.state::<AppState>();
+                    if let Err(e) =
+                        commands::server::start_instance(handle.clone(), state, id.clone()).await
+                    {
+                        tracing::warn!("Auto-start failed for instance {id}: {e}");
+                    }
+                }
+            });
+
             // Guard against closing ModForge while a Minecraft server is
             // still running: without this, the child process would be
             // orphaned (left running with no UI to manage it) rather than
@@ -84,6 +108,7 @@ pub fn run() {
             commands::instance::list_instances,
             commands::instance::create_instance,
             commands::instance::rename_instance,
+            commands::instance::duplicate_instance,
             commands::instance::delete_instance,
             commands::instance::set_instance_java,
             commands::instance::list_server_jars,
@@ -107,7 +132,17 @@ pub fn run() {
             commands::diagnostics::get_app_logs_dir,
             commands::diagnostics::export_app_log,
             commands::diagnostics::get_instance_logs_dir,
+            commands::diagnostics::get_instance_subfolder,
             commands::diagnostics::export_instance_log,
+            commands::backup::create_world_backup,
+            commands::backup::list_world_backups,
+            commands::backup::restore_world_backup,
+            commands::backup::delete_world_backup,
+            commands::playerlist::read_player_list,
+            commands::playerlist::write_player_list,
+            commands::mods::list_mods,
+            commands::mods::toggle_mod,
+            commands::mods::delete_mod,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

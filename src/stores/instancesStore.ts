@@ -19,6 +19,7 @@ interface InstancesState {
     request: ImportInstanceRequest,
   ) => Promise<Instance>;
   renameInstance: (id: string, newName: string) => Promise<Instance>;
+  duplicateInstance: (id: string, newName: string) => Promise<Instance>;
   setInstanceJava: (id: string, javaInstallationId: string | null) => Promise<Instance>;
   updateInstanceSettings: (
     id: string,
@@ -70,6 +71,12 @@ export const useInstancesStore = create<InstancesState>((set, get) => ({
       instances: get().instances.map((i) => (i.id === id ? updated : i)),
     });
     return updated;
+  },
+
+  duplicateInstance: async (id, newName) => {
+    const instance = await api.duplicateInstance(id, newName);
+    set({ instances: [instance, ...get().instances] });
+    return instance;
   },
 
   updateInstanceSettings: async (id, request) => {

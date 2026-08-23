@@ -1,7 +1,9 @@
 use std::fs::File;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use zip::ZipArchive;
+use zip::write::SimpleFileOptions;
+use zip::{ZipArchive, ZipWriter};
 
 /// Resolves a ZIP entry's internal path to a safe path under `dest_root`,
 /// or `None` if the entry tries to escape it - the "zip slip" attack, where
@@ -65,6 +67,38 @@ pub fn extract_zip_safely(zip_path: &Path, dest_root: &Path) -> std::io::Result<
     }
 
     Ok(warnings)
+}
+
+/// Zips a directory tree into `dest_zip` - used for world backups. Not
+/// import-specific, but lives alongside `extract_zip_safely` since the two
+/// are natural inverses of each other.
+pub fn create_zip_from_dir(src_dir: &Path, dest_zip: &Path) -> std::io::Result<()> {
+    let file = File::create(dest_zip)?;
+    let mut zip = ZipWriter::new(file);
+    let options = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+
+    for entry in walkdir::WalkDir::new(src_dir) {
+        let entry = entry.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+        let rel_path = entry
+            .path()
+            .strip_prefix(src_dir)
+            .expect("walkdir entries are always under src_dir");
+        if rel_path.as_os_str().is_empty() {
+            continue;
+        }
+        let name = rel_path.to_string_lossy().replace('\\', "/");
+
+        if entry.file_type().is_dir() {
+            zip.add_directory(format!("{name}/"), options)?;
+        } else if entry.file_type().is_file() {
+            zip.start_file(name, options)?;
+            let bytes = std::fs::read(entry.path())?;
+            zip.write_all(&bytes)?;
+        }
+    }
+
+    zip.finish()?;
+    Ok(())
 }
 
 /// Recursively copies a directory tree into `dest_root`. Used for "import

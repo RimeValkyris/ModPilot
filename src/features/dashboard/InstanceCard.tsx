@@ -2,7 +2,7 @@ import { useEffect } from "react";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import { MoreVertical, OctagonX, Pencil, Play, RotateCw, Square, Trash2 } from "lucide-react";
+import { Copy, MoreVertical, OctagonX, Pencil, Play, RotateCw, Square, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -49,14 +49,16 @@ const NO_JAVA_VALUE = "__none__";
 
 export function InstanceCard({ instance }: { instance: Instance }) {
   const navigate = useNavigate();
-  const { renameInstance, deleteInstance, setInstanceJava } = useInstances();
+  const { renameInstance, duplicateInstance, deleteInstance, setInstanceJava } = useInstances();
   const { installations, fetchInstallations } = useJavaStore();
   const { wallpapers, fetchWallpaper } = useWallpaperStore();
   const wallpaper = wallpapers[instance.id];
   const [renameOpen, setRenameOpen] = useState(false);
+  const [duplicateOpen, setDuplicateOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [forceStopOpen, setForceStopOpen] = useState(false);
   const [nameDraft, setNameDraft] = useState(instance.name);
+  const [duplicateNameDraft, setDuplicateNameDraft] = useState(`${instance.name} (Copy)`);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isProcessActionPending, setIsProcessActionPending] = useState(false);
 
@@ -102,6 +104,21 @@ export function InstanceCard({ instance }: { instance: Instance }) {
       setRenameOpen(false);
     } catch (err) {
       toast.error("Failed to rename instance", { description: String(err) });
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function handleDuplicate(e: React.FormEvent) {
+    e.preventDefault();
+    if (!duplicateNameDraft.trim()) return;
+    setIsSubmitting(true);
+    try {
+      const copy = await duplicateInstance(instance.id, duplicateNameDraft.trim());
+      toast.success(`Created "${copy.name}"`);
+      setDuplicateOpen(false);
+    } catch (err) {
+      toast.error("Failed to duplicate instance", { description: String(err) });
     } finally {
       setIsSubmitting(false);
     }
@@ -160,6 +177,10 @@ export function InstanceCard({ instance }: { instance: Instance }) {
             <DropdownMenuItem onClick={() => setRenameOpen(true)}>
               <Pencil />
               Rename
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setDuplicateOpen(true)}>
+              <Copy />
+              Duplicate
             </DropdownMenuItem>
             {(instance.status === "running" || instance.status === "stopping") && (
               <DropdownMenuItem variant="destructive" onClick={() => setForceStopOpen(true)}>
@@ -297,6 +318,31 @@ export function InstanceCard({ instance }: { instance: Instance }) {
             <DialogFooter>
               <Button type="submit" disabled={isSubmitting}>
                 {isSubmitting ? "Saving…" : "Save"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={duplicateOpen} onOpenChange={setDuplicateOpen}>
+        <DialogContent>
+          <form onSubmit={handleDuplicate} className="flex flex-col gap-4">
+            <DialogHeader>
+              <DialogTitle>Duplicate instance</DialogTitle>
+              <DialogDescription>
+                Copies this instance's server files (mods, config, world) and
+                settings into a new instance. Logs and backups aren't
+                carried over.
+              </DialogDescription>
+            </DialogHeader>
+            <Input
+              autoFocus
+              value={duplicateNameDraft}
+              onChange={(e) => setDuplicateNameDraft(e.target.value)}
+            />
+            <DialogFooter>
+              <Button type="submit" disabled={isSubmitting}>
+                {isSubmitting ? "Duplicating…" : "Duplicate"}
               </Button>
             </DialogFooter>
           </form>
