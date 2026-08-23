@@ -28,9 +28,13 @@ sqlx = { version = "0.8", default-features = false, features = [
     "chrono",
     "uuid",
     "migrate",
+    "macros",
 ] }
 tokio = { version = "1", features = ["rt", "macros", "sync", "fs"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 thiserror = "2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-appender = "0.2"
 

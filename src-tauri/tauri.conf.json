@@ -12,9 +12,11 @@
   "app": {
     "windows": [
       {
-        "title": "modforge",
-        "width": 800,
-        "height": 600
+        "title": "ModForge",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 960,
+        "minHeight": 600
       }
     ],
     "security": {
