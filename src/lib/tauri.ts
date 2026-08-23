@@ -73,6 +73,8 @@ export const api = {
 
   getResourceUsage: (id: string) => invoke<ResourceUsage>("get_resource_usage", { id }),
 
+  getAllResourceUsage: () => invoke<Record<string, ResourceUsage>>("get_all_resource_usage"),
+
   listRunningInstanceIds: () => invoke<string[]>("list_running_instance_ids"),
 
   getAppLogsDir: () => invoke<string>("get_app_logs_dir"),

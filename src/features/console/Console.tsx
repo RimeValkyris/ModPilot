@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { listen } from "@tauri-apps/api/event";
 import { Send } from "lucide-react";
@@ -20,6 +20,32 @@ const FONT_SIZE_CLASS: Record<string, string> = {
   sm: "text-sm",
   base: "text-base",
 };
+
+/**
+ * Memoized so appending one new line doesn't re-render every previous line -
+ * `lines` grows via `[...prev, newItem]`, which keeps the same object
+ * reference for every existing entry, so this only actually re-renders the
+ * row(s) whose props changed (i.e. the new one, or all of them if
+ * `wordWrap` itself changes). Without this, React would reconcile up to
+ * `maxLines` DOM nodes on every single incoming console line.
+ */
+const ConsoleLineRow = memo(function ConsoleLineRow({
+  line,
+  wordWrap,
+}: {
+  line: ConsoleLine;
+  wordWrap: boolean;
+}) {
+  return (
+    <div
+      className={`${line.stream === "stderr" ? "text-red-400" : "text-zinc-300"} ${
+        wordWrap ? "whitespace-pre-wrap wrap-break-word" : "whitespace-pre"
+      }`}
+    >
+      {line.text}
+    </div>
+  );
+});
 
 export function Console({ instance }: { instance: Instance }) {
   const [lines, setLines] = useState<ConsoleLine[]>([]);
@@ -119,16 +145,7 @@ export function Console({ instance }: { instance: Instance }) {
         {lines.length === 0 ? (
           <p className="text-zinc-500">No output yet.</p>
         ) : (
-          lines.map((line) => (
-            <div
-              key={line.id}
-              className={`${line.stream === "stderr" ? "text-red-400" : "text-zinc-300"} ${
-                wordWrap ? "whitespace-pre-wrap wrap-break-word" : "whitespace-pre"
-              }`}
-            >
-              {line.text}
-            </div>
-          ))
+          lines.map((line) => <ConsoleLineRow key={line.id} line={line} wordWrap={wordWrap} />)
         )}
       </div>
       <form onSubmit={handleSubmit} className="flex gap-2">

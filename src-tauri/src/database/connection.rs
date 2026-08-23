@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
+use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions, SqliteSynchronous};
 use sqlx::SqlitePool;
 
 /// Embeds `src-tauri/migrations` into the binary and runs them against
@@ -18,7 +18,16 @@ pub async fn init_pool(db_path: &Path) -> Result<SqlitePool, sqlx::Error> {
     let options = SqliteConnectOptions::new()
         .filename(db_path)
         .create_if_missing(true)
-        .foreign_keys(true);
+        .foreign_keys(true)
+        // WAL lets readers (e.g. the resource-monitor poll, list_instances)
+        // proceed while a write is in progress, instead of the default
+        // rollback-journal mode where any writer blocks every other
+        // connection in the pool for the duration of its transaction -
+        // exactly the pattern this app has a lot of (frequent small writes
+        // from status updates, log persistence, and settings, interleaved
+        // with frequent reads for polling).
+        .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
+        .synchronous(SqliteSynchronous::Normal);
 
     let pool = SqlitePoolOptions::new()
         .max_connections(5)

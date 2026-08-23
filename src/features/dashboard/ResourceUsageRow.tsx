@@ -1,4 +1,4 @@
-import { useResourceUsage } from "@/hooks/useResourceUsage";
+import { useResourceUsageStore } from "@/stores/resourceUsageStore";
 import { formatMemoryMb, formatUptime } from "@/lib/format";
 import type { Instance } from "@/types/instance";
 
@@ -8,9 +8,14 @@ import type { Instance } from "@/types/instance";
  * can't be read from the OS process, and ModForge doesn't parse the
  * server's own stats reliably enough yet to display them without risking a
  * misleading number.
+ *
+ * Reads from the single app-wide resource poll (`useResourceUsagePolling`,
+ * mounted once at the app root) rather than polling itself - with several
+ * of these mounted at once, independent per-card polling would mean one
+ * backend round trip per card per tick for data one shared call covers.
  */
 export function ResourceUsageRow({ instance }: { instance: Instance }) {
-  const usage = useResourceUsage(instance.id, instance.status === "running");
+  const usage = useResourceUsageStore((s) => s.usageByInstanceId[instance.id]);
 
   if (!usage || !usage.isRunning) {
     return (

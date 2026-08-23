@@ -173,6 +173,7 @@ pub fn run() {
             commands::wallpaper::clear_app_wallpaper,
             commands::wallpaper::read_app_wallpaper,
             commands::monitor::get_resource_usage,
+            commands::monitor::get_all_resource_usage,
             commands::diagnostics::get_app_logs_dir,
             commands::diagnostics::export_app_log,
             commands::diagnostics::get_instance_logs_dir,

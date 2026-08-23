@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use tauri::State;
 
 use crate::models::ResourceUsage;
@@ -12,4 +14,21 @@ pub async fn get_resource_usage(state: State<'_, AppState>, id: String) -> Resul
     };
 
     Ok(state.resource_monitor.sample(pid, started_at).await)
+}
+
+/// Same as `get_resource_usage`, but for every running instance in one
+/// call - the frontend polls this once for the whole app rather than once
+/// per visible instance card, which matters once several servers are
+/// running simultaneously.
+#[tauri::command]
+pub async fn get_all_resource_usage(
+    state: State<'_, AppState>,
+) -> Result<HashMap<String, ResourceUsage>, String> {
+    let snapshot = state.processes.running_snapshot().await;
+    let mut result = HashMap::with_capacity(snapshot.len());
+    for (id, pid, started_at) in snapshot {
+        let usage = state.resource_monitor.sample(pid, started_at).await;
+        result.insert(id, usage);
+    }
+    Ok(result)
 }

@@ -105,4 +105,15 @@ impl ProcessManager {
         let processes = self.processes.lock().await;
         processes.get(instance_id).map(|p| (p.pid, p.started_at))
     }
+
+    /// Same as `running_info`, but for every running instance at once in a
+    /// single lock acquisition - lets the frontend poll resource usage for
+    /// all running instances with one IPC round trip instead of one per card.
+    pub async fn running_snapshot(&self) -> Vec<(String, Option<u32>, DateTime<Utc>)> {
+        let processes = self.processes.lock().await;
+        processes
+            .iter()
+            .map(|(id, p)| (id.clone(), p.pid, p.started_at))
+            .collect()
+    }
 }
