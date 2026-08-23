@@ -52,6 +52,13 @@ pub async fn set_status(
         },
     );
 
+    // Reaching RUNNING means the crash (if there was one) is behind it -
+    // an instance that crashes occasionally but recovers fine shouldn't
+    // stay penalized by crashes from long before.
+    if status == ServerStatus::Running {
+        app.state::<AppState>().crash_tracker.clear(instance_id).await;
+    }
+
     // Only the two states worth interrupting the user for - not every
     // Starting/Stopping blip, which happens on every routine restart.
     if matches!(status, ServerStatus::Running | ServerStatus::Crashed) {
@@ -224,7 +231,10 @@ pub async fn spawn_server_process(
 
 /// If the instance that just crashed has `auto_restart` set, relaunches it
 /// after a short delay - long enough to avoid hammering a server that
-/// fails to start at all into a tight crash loop.
+/// fails to start at all. Also enforces a crash-loop limit (see
+/// `CrashTracker`): a server crashing repeatedly in a short window has a
+/// problem a restart won't fix, so auto-restart gives up and says so
+/// instead of looping forever.
 ///
 /// Returns a boxed future (rather than being `async fn`) deliberately: this
 /// calls into `commands::server::start_instance`, which calls back into
@@ -248,6 +258,20 @@ fn maybe_auto_restart(
             return;
         }
 
+        let should_restart = app
+            .state::<AppState>()
+            .crash_tracker
+            .record_crash_and_check(&instance_id)
+            .await;
+
+        if !should_restart {
+            tracing::warn!(
+                "Instance {instance_id} crashed too many times in a row; auto-restart giving up"
+            );
+            notify_crash_loop_gave_up(&app, &db, &instance_id).await;
+            return;
+        }
+
         tracing::info!("Auto-restarting crashed instance {instance_id}");
         tokio::time::sleep(std::time::Duration::from_secs(5)).await;
 
@@ -258,6 +282,34 @@ fn maybe_auto_restart(
             tracing::error!("Auto-restart failed for instance {instance_id}: {e}");
         }
     })
+}
+
+async fn notify_crash_loop_gave_up(app: &AppHandle, db: &SqlitePool, instance_id: &str) {
+    let setting: Option<String> = sqlx::query_scalar(
+        "SELECT value FROM application_settings WHERE key = 'notifications_enabled'",
+    )
+    .fetch_optional(db)
+    .await
+    .unwrap_or_default();
+    if setting.as_deref() == Some("false") {
+        return;
+    }
+
+    let name: Option<String> = sqlx::query_scalar("SELECT name FROM instances WHERE id = ?")
+        .bind(instance_id)
+        .fetch_optional(db)
+        .await
+        .unwrap_or_default();
+    let name = name.unwrap_or_else(|| "Instance".to_string());
+
+    let _ = app
+        .notification()
+        .builder()
+        .title("ModpackPilot")
+        .body(format!(
+            "{name} has crashed repeatedly and auto-restart has stopped trying. Check its logs and start it manually once fixed."
+        ))
+        .show();
 }
 
 #[allow(clippy::too_many_arguments)]

@@ -17,6 +17,7 @@ pub struct AppState {
     pub paths: AppPaths,
     pub processes: server::ProcessManager,
     pub resource_monitor: server::ResourceMonitor,
+    pub crash_tracker: server::CrashTracker,
 }
 
 /// Checks for running servers before actually exiting: if any are running,
@@ -84,6 +85,7 @@ pub fn run() {
                 paths,
                 processes: server::ProcessManager::new(),
                 resource_monitor: server::ResourceMonitor::new(),
+                crash_tracker: server::CrashTracker::new(),
             });
 
             // Launch any instance marked auto-start, once the window/state
