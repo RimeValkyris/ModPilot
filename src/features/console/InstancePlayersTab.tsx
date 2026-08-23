@@ -84,7 +84,7 @@ function PlayerListEditor({ instanceId, config }: { instanceId: string; config: 
     }
     if (config.file === "banned-players.json") {
       entry.created ??= new Date().toISOString();
-      entry.source ??= "ModForge";
+      entry.source ??= "ModpackPilot";
       entry.expires ??= "forever";
     }
     save([...entries, entry]);

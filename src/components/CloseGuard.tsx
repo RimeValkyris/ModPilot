@@ -51,7 +51,7 @@ export function CloseGuard() {
         <AlertDialogHeader>
           <AlertDialogTitle>Servers are still running</AlertDialogTitle>
           <AlertDialogDescription>
-            Closing ModForge now would leave the Minecraft server process
+            Closing ModpackPilot now would leave the Minecraft server process
             running with nothing managing it. Stop all running servers and
             exit, or cancel and stop them yourself first.
           </AlertDialogDescription>

@@ -1,11 +1,9 @@
-import { useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useInstances } from "@/hooks/useInstances";
-import { useWallpaperStore } from "@/stores/wallpaperStore";
 import { STATUS_DOT, STATUS_LABEL } from "@/lib/serverStatus";
 import { Console } from "@/features/console/Console";
 import { InstanceSettingsForm } from "@/features/settings/InstanceSettingsForm";
@@ -31,11 +29,6 @@ export function InstanceDetailPage() {
   const navigate = useNavigate();
   const { instances, isLoading } = useInstances();
   const instance = instances.find((i) => i.id === id);
-  const { wallpapers, fetchWallpaper } = useWallpaperStore();
-
-  useEffect(() => {
-    if (id) fetchWallpaper(id);
-  }, [id, fetchWallpaper]);
 
   const activeTab: Tab = TABS.includes(tab as Tab) ? (tab as Tab) : "overview";
 
@@ -67,23 +60,8 @@ export function InstanceDetailPage() {
         Back to Servers
       </Button>
 
-      <header
-        className="flex items-center gap-3 rounded-xl p-4"
-        style={
-          wallpapers[instance.id]
-            ? {
-                backgroundImage: `linear-gradient(to bottom, rgba(0,0,0,0.25), rgba(0,0,0,0.55)), url(${wallpapers[instance.id]})`,
-                backgroundSize: "cover",
-                backgroundPosition: "center",
-              }
-            : undefined
-        }
-      >
-        <h1
-          className={`text-2xl font-semibold tracking-tight ${wallpapers[instance.id] ? "text-white" : ""}`}
-        >
-          {instance.name}
-        </h1>
+      <header className="flex items-center gap-3 rounded-xl p-4">
+        <h1 className="text-2xl font-semibold tracking-tight">{instance.name}</h1>
         <div className="flex items-center gap-1.5">
           <span className={`size-2 rounded-full ${STATUS_DOT[instance.status]}`} />
           <Badge variant="outline">{STATUS_LABEL[instance.status]}</Badge>

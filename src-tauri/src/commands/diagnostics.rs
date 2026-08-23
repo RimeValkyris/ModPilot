@@ -9,7 +9,7 @@ pub fn get_app_logs_dir(state: State<'_, AppState>) -> String {
     state.paths.logs_dir.to_string_lossy().to_string()
 }
 
-/// Copies ModForge's own log (including any captured panic - see the
+/// Copies ModpackPilot's own log (including any captured panic - see the
 /// `std::panic::set_hook` in `lib.rs`) to a location the user picked via a
 /// native save dialog, so a crash report can actually leave the machine.
 #[tauri::command]
@@ -17,7 +17,7 @@ pub async fn export_app_log(state: State<'_, AppState>, dest_path: String) -> Re
     let source = state
         .paths
         .logs_dir
-        .join(format!("modforge.log.{}", chrono::Utc::now().format("%Y-%m-%d")));
+        .join(format!("modpackpilot.log.{}", chrono::Utc::now().format("%Y-%m-%d")));
 
     tokio::fs::copy(&source, &dest_path)
         .await
@@ -87,7 +87,7 @@ pub(crate) async fn detect_world_folder_name(server_dir: &std::path::Path) -> St
 
 /// Copies an instance's `logs/latest.log` to a user-chosen location -
 /// the equivalent crash-log export for a server that crashed, rather than
-/// ModForge itself.
+/// ModpackPilot itself.
 #[tauri::command]
 pub async fn export_instance_log(
     state: State<'_, AppState>,

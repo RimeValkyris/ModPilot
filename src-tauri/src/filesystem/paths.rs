@@ -2,8 +2,8 @@ use std::path::PathBuf;
 
 use tauri::{AppHandle, Manager};
 
-/// Well-known ModForge directories, all rooted under the OS-specific app data
-/// directory Tauri resolves for us (e.g. `%APPDATA%/com.modforge.app` on
+/// Well-known ModpackPilot directories, all rooted under the OS-specific app data
+/// directory Tauri resolves for us (e.g. `%APPDATA%/com.modpackpilot.app` on
 /// Windows). Nothing here is hard-coded - `Manager::path()` is what makes
 /// this portable to Linux later.
 ///
@@ -23,7 +23,7 @@ impl AppPaths {
         Ok(Self {
             instances_dir: app_data_dir.join("instances"),
             logs_dir: app_data_dir.join("logs"),
-            db_path: app_data_dir.join("modforge.sqlite"),
+            db_path: app_data_dir.join("modpackpilot.sqlite"),
             app_data_dir,
         })
     }

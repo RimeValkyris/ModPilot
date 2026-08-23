@@ -1,4 +1,4 @@
-# ModForge
+# ModpackPilot
 
 A native desktop launcher and manager for Minecraft modpack servers. Import
 existing server files or create one from scratch, then configure, launch,
@@ -22,27 +22,42 @@ monitor, and manage it — no browser tab, no hosted backend, no Docker.
 ## What it does
 
 - **Import** an existing Minecraft server from a ZIP file (drag-and-drop or
-  file picker) or an existing folder. ModForge detects the Minecraft
-  version, mod loader (Forge / NeoForge / Fabric / Quilt / Vanilla), server
-  JAR, mods, config, world folder, and start scripts on a best-effort basis
-  before anything is copied.
-- **Create** a new empty instance and configure it manually.
+  file picker) or an existing folder. Detects the Minecraft version, mod
+  loader (Forge / NeoForge / Fabric / Quilt / Vanilla), server JAR, mods,
+  config, world folder, and start scripts on a best-effort basis before
+  anything is copied.
+- **Create** a new empty instance, or **duplicate** an existing one (server
+  files and settings, not logs/backups) and configure it manually.
 - **Launch, stop, restart, and force-stop** the server as a real child
-  process managed by the Rust backend — never through the webview.
+  process managed by the Rust backend — never through the webview. Optional
+  **auto-start** on app launch and **auto-restart** on crash, per instance.
 - **Live console**: real-time stdout/stderr streaming, a command input for
   sending things like `say Hello` or `whitelist add PlayerName`, and
   persisted per-instance logs (`logs/latest.log`, `logs/<date>.log`).
 - **Java management**: detects installed JDKs (`JAVA_HOME`, `PATH`, common
-  install locations), shows version/vendor/architecture, and lets you
-  assign which one an instance launches with.
+  install locations), shows version/vendor/architecture, lets you assign
+  which one an instance uses, and recommends/flags mismatches against the
+  Java version Mojang actually requires for that instance's Minecraft version.
 - **Per-instance settings**: server JAR, JVM/server arguments, min/max RAM,
-  auto-start, auto-restart, and an optional wallpaper image for the
-  instance's card and detail page.
+  auto-start, auto-restart.
+- **World backups**: one-click zip snapshot of an instance's world folder,
+  with restore and delete.
+- **Mods management**: list, enable/disable (renames to `.jar.disabled`
+  rather than deleting), and remove mods without touching the filesystem by hand.
+- **Whitelist / operators / banned players**: edit `whitelist.json`,
+  `ops.json`, and `banned-players.json` from a form instead of hand-editing JSON.
 - **Resource monitoring**: CPU%, memory, and uptime for each running
-  server, sampled from the actual OS process.
+  server, sampled from the actual OS process, polled in one batched call
+  regardless of how many servers are running.
+- **Desktop notifications** when a server finishes starting or crashes, a
+  **system tray** icon with minimize-to-tray, and optional **launch on
+  system startup**.
+- **App settings**: theme (Light/Dark/Dracula/Nord), configurable instances
+  storage location, new-instance defaults (RAM/JVM args), console
+  performance tuning, and one-click crash-log export/open-logs-folder.
 - Everything is stored under an OS-appropriate app data directory —
-  metadata in SQLite, server files on disk. No web server, no cloud
-  dependency.
+  metadata in SQLite (WAL mode), server files on disk. No web server, no
+  cloud dependency.
 
 ## Tech stack
 
@@ -125,7 +140,10 @@ src-tauri/migrations/      SQL schema migrations
 
 ## Status
 
-ModForge is under active incremental development. Core instance
-management, importing, Java detection, process control, the live console,
-per-instance settings, and resource monitoring are implemented. Auto
-Java installation and auto-updates are planned but not yet built.
+ModpackPilot is under active incremental development. Core instance management,
+importing, Java detection/recommendation, process control (including
+auto-start/auto-restart), the live console, per-instance settings, world
+backups, mods/whitelist/ops management, resource monitoring, notifications,
+system tray, and app-wide settings (theme, instances location, defaults) are
+implemented. Automatic Java installation, Linux packaging, and auto-updates
+are planned but not yet built.

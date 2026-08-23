@@ -47,7 +47,7 @@ pub(crate) async fn get_setting_bool(db: &SqlitePool, key: &str, default: bool) 
     }
 }
 
-/// Returns the instances directory ModForge is currently configured to
+/// Returns the instances directory ModpackPilot is currently configured to
 /// use (which may be a user override from `set_instances_dir`, applied at
 /// the last app startup).
 #[tauri::command]
@@ -104,7 +104,7 @@ fn move_directory_contents(src: &std::path::Path, dest: &std::path::Path) -> std
     Ok(())
 }
 
-/// Exits ModForge immediately. Used by the close-guard once the user has
+/// Exits ModpackPilot immediately. Used by the close-guard once the user has
 /// confirmed stopping any running servers (or there were none to stop).
 #[tauri::command]
 pub fn quit_app(app: AppHandle) {

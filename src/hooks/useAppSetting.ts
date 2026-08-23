@@ -4,7 +4,7 @@ import { api } from "@/lib/tauri";
 /**
  * A single persisted app setting, backed by the `application_settings`
  * table (not localStorage) so it survives reinstalls/moves the same way
- * everything else ModForge remembers does.
+ * everything else ModpackPilot remembers does.
  */
 export function useAppSetting(key: string, defaultValue: string) {
   const [value, setValue] = useState(defaultValue);

@@ -89,7 +89,7 @@ async fn notify_status(app: &AppHandle, db: &SqlitePool, instance_id: &str, stat
     let _ = app
         .notification()
         .builder()
-        .title("ModForge")
+        .title("ModpackPilot")
         .body(body)
         .show();
 }
@@ -99,7 +99,7 @@ async fn notify_status(app: &AppHandle, db: &SqlitePool, instance_id: &str, stat
 /// log files and Tauri events, and spawns the background task that detects
 /// process exit.
 ///
-/// The Minecraft process is a plain child process of ModForge - never a
+/// The Minecraft process is a plain child process of ModpackPilot - never a
 /// shell command string, so nothing here is vulnerable to shell injection
 /// via, say, a crafted instance name or JVM argument.
 #[allow(clippy::too_many_arguments)]
@@ -129,7 +129,7 @@ pub async fn spawn_server_process(
 
     #[cfg(windows)]
     {
-        // CREATE_NO_WINDOW - the server has its own console (ModForge's),
+        // CREATE_NO_WINDOW - the server has its own console (ModpackPilot's),
         // it doesn't need a second native console window popping up.
         command.creation_flags(0x0800_0000);
     }

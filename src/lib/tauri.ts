@@ -63,14 +63,6 @@ export const api = {
   updateInstanceSettings: (id: string, request: UpdateInstanceSettingsRequest) =>
     invoke<Instance>("update_instance_settings", { id, request }),
 
-  setInstanceWallpaper: (id: string, sourcePath: string) =>
-    invoke<void>("set_instance_wallpaper", { id, sourcePath }),
-
-  clearInstanceWallpaper: (id: string) => invoke<void>("clear_instance_wallpaper", { id }),
-
-  readInstanceWallpaper: (id: string) =>
-    invoke<string | null>("read_instance_wallpaper", { id }),
-
   getResourceUsage: (id: string) => invoke<ResourceUsage>("get_resource_usage", { id }),
 
   getAllResourceUsage: () => invoke<Record<string, ResourceUsage>>("get_all_resource_usage"),
@@ -126,10 +118,4 @@ export const api = {
   quitApp: () => invoke<void>("quit_app"),
 
   resetJavaInstallations: () => invoke<void>("reset_java_installations"),
-
-  setAppWallpaper: (sourcePath: string) => invoke<void>("set_app_wallpaper", { sourcePath }),
-
-  clearAppWallpaper: () => invoke<void>("clear_app_wallpaper"),
-
-  readAppWallpaper: () => invoke<string | null>("read_app_wallpaper"),
 };

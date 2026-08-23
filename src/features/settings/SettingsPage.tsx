@@ -8,14 +8,7 @@ import {
   isEnabled as isAutostartEnabled,
 } from "@tauri-apps/plugin-autostart";
 import { getVersion } from "@tauri-apps/api/app";
-import {
-  AlertTriangle,
-  Check,
-  Download,
-  FolderOpen,
-  ImagePlus,
-  Trash2,
-} from "lucide-react";
+import { AlertTriangle, Check, Download, FolderOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -40,7 +33,6 @@ import {
 } from "@/components/ui/alert-dialog";
 import { api } from "@/lib/tauri";
 import { useThemeStore } from "@/stores/themeStore";
-import { useAppWallpaperStore } from "@/stores/appWallpaperStore";
 import { useAppSetting, useBoolAppSetting } from "@/hooks/useAppSetting";
 import { THEMES, THEME_LABELS, THEME_SWATCHES } from "@/types/theme";
 
@@ -86,54 +78,9 @@ function SettingRow({
 
 function AppearanceSection() {
   const { theme, setTheme } = useThemeStore();
-  const {
-    wallpaper,
-    blur,
-    dim,
-    load: loadWallpaper,
-    setWallpaper,
-    clearWallpaper,
-    setBlur,
-    setDim,
-  } = useAppWallpaperStore();
-  const [isWallpaperBusy, setIsWallpaperBusy] = useState(false);
-
-  useEffect(() => {
-    loadWallpaper();
-  }, [loadWallpaper]);
-
-  async function handlePickWallpaper() {
-    const path = await openDialog({
-      title: "Choose an app background image",
-      multiple: false,
-      directory: false,
-      filters: [{ name: "Image", extensions: ["png", "jpg", "jpeg", "webp", "gif"] }],
-    });
-    if (typeof path !== "string") return;
-
-    setIsWallpaperBusy(true);
-    try {
-      await setWallpaper(path);
-    } catch (err) {
-      toast.error("Failed to set wallpaper", { description: String(err) });
-    } finally {
-      setIsWallpaperBusy(false);
-    }
-  }
-
-  async function handleClearWallpaper() {
-    setIsWallpaperBusy(true);
-    try {
-      await clearWallpaper();
-    } catch (err) {
-      toast.error("Failed to remove wallpaper", { description: String(err) });
-    } finally {
-      setIsWallpaperBusy(false);
-    }
-  }
 
   return (
-    <SettingsSection title="Appearance" description="Theme and background for the whole app.">
+    <SettingsSection title="Appearance" description="Theme for the whole app.">
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         {THEMES.map((t) => (
           <button
@@ -155,74 +102,6 @@ function AppearanceSection() {
             {THEME_LABELS[t]}
           </button>
         ))}
-      </div>
-
-      <div className="flex flex-col gap-2 border-t border-border pt-3">
-        <p className="text-xs font-medium text-muted-foreground">App background</p>
-
-        {wallpaper && (
-          <div className="relative h-32 w-full overflow-hidden rounded-lg border border-border">
-            <div
-              className="absolute inset-0"
-              style={{
-                backgroundImage: `url(${wallpaper})`,
-                backgroundSize: "cover",
-                backgroundPosition: "center",
-                filter: blur > 0 ? `blur(${blur}px)` : undefined,
-                transform: blur > 0 ? "scale(1.1)" : undefined,
-              }}
-            />
-            <div
-              className="absolute inset-0"
-              style={{ backgroundColor: `rgba(0,0,0,${dim / 100})` }}
-            />
-            <span className="absolute bottom-1.5 right-2 text-[10px] text-white/80">Preview</span>
-          </div>
-        )}
-
-        <div className="flex gap-2">
-          <Button variant="outline" size="sm" disabled={isWallpaperBusy} onClick={handlePickWallpaper}>
-            <ImagePlus />
-            Choose Image
-          </Button>
-          {wallpaper && (
-            <Button variant="outline" size="sm" disabled={isWallpaperBusy} onClick={handleClearWallpaper}>
-              <Trash2 />
-              Remove
-            </Button>
-          )}
-        </div>
-
-        {wallpaper && (
-          <div className="flex flex-col gap-3 pt-1">
-            <div className="flex flex-col gap-1">
-              <div className="flex items-center justify-between text-xs text-muted-foreground">
-                <span>Blur</span>
-                <span>{blur}px</span>
-              </div>
-              <input
-                type="range"
-                min={0}
-                max={20}
-                value={blur}
-                onChange={(e) => setBlur(Number(e.target.value))}
-              />
-            </div>
-            <div className="flex flex-col gap-1">
-              <div className="flex items-center justify-between text-xs text-muted-foreground">
-                <span>Dim</span>
-                <span>{dim}%</span>
-              </div>
-              <input
-                type="range"
-                min={0}
-                max={90}
-                value={dim}
-                onChange={(e) => setDim(Number(e.target.value))}
-              />
-            </div>
-          </div>
-        )}
       </div>
     </SettingsSection>
   );
@@ -260,8 +139,8 @@ function BehaviorSection() {
   return (
     <SettingsSection title="Behavior">
       <SettingRow
-        label="Launch ModForge on system startup"
-        description="Start ModForge automatically when you sign in to Windows."
+        label="Launch ModpackPilot on system startup"
+        description="Start ModpackPilot automatically when you sign in to Windows."
       >
         <Switch
           checked={autostart}
@@ -305,7 +184,7 @@ function InstancesLocationSection() {
     setIsSaving(true);
     try {
       await api.setInstancesDir(chosenDir, moveExisting);
-      toast.success("Saved. Restart ModForge to switch to the new location.");
+      toast.success("Saved. Restart ModpackPilot to switch to the new location.");
       setCurrentDir(chosenDir);
       setChosenDir(null);
     } catch (err) {
@@ -465,8 +344,8 @@ function DiagnosticsSection() {
 
   async function handleExportLog() {
     const destPath = await saveDialog({
-      title: "Save ModForge log",
-      defaultPath: `modforge-log-${new Date().toISOString().slice(0, 10)}.txt`,
+      title: "Save ModpackPilot log",
+      defaultPath: `modpackpilot-log-${new Date().toISOString().slice(0, 10)}.txt`,
       filters: [{ name: "Log file", extensions: ["txt", "log"] }],
     });
     if (!destPath) return;
@@ -485,7 +364,7 @@ function DiagnosticsSection() {
   return (
     <SettingsSection
       title="Diagnostics"
-      description="If ModForge crashes or behaves unexpectedly, export the log and include it when reporting the issue."
+      description="If ModpackPilot crashes or behaves unexpectedly, export the log and include it when reporting the issue."
     >
       <div className="flex gap-2">
         <Button variant="outline" size="sm" onClick={handleOpenLogsFolder}>
@@ -513,7 +392,7 @@ function AboutSection() {
   return (
     <SettingsSection title="About">
       <p className="text-sm">
-        ModForge <span className="text-muted-foreground">v{version || "…"}</span>
+        ModpackPilot <span className="text-muted-foreground">v{version || "…"}</span>
       </p>
       <p className="text-xs text-muted-foreground">
         A native desktop launcher and manager for Minecraft modpack servers.

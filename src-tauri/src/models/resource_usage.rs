@@ -2,7 +2,7 @@ use serde::Serialize;
 
 /// A point-in-time snapshot of a running instance's process resource usage.
 /// Deliberately does not include TPS or player count - neither can be read
-/// from the OS process, and ModForge doesn't parse the server's own metrics
+/// from the OS process, and ModpackPilot doesn't parse the server's own metrics
 /// well enough yet to claim them reliably.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]

@@ -181,7 +181,7 @@ pub async fn restart_instance(app: AppHandle, state: State<'_, AppState>, id: St
     start_instance(app, state, id).await
 }
 
-/// Returns the ids of every instance ModForge currently has a running
+/// Returns the ids of every instance ModpackPilot currently has a running
 /// server process for. Used by the "servers are still running" close-guard.
 #[tauri::command]
 pub async fn list_running_instance_ids(state: State<'_, AppState>) -> Result<Vec<String>, String> {

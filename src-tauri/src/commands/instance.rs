@@ -15,9 +15,9 @@ use crate::AppState;
 
 const INSTANCE_COLUMNS: &str = "id, name, minecraft_version, loader, loader_version, java_installation_id,
      min_ram_mb, max_ram_mb, server_directory, server_jar, jvm_args, server_args,
-     status, auto_start, auto_restart, created_at, last_launched_at, wallpaper_path";
+     status, auto_start, auto_restart, created_at, last_launched_at";
 
-/// Lists every server instance ModForge knows about, newest first.
+/// Lists every server instance ModpackPilot knows about, newest first.
 #[tauri::command]
 pub async fn list_instances(state: State<'_, AppState>) -> Result<Vec<Instance>, String> {
     let rows = sqlx::query_as::<_, InstanceRow>(&format!(
@@ -99,7 +99,6 @@ pub async fn create_instance(
         auto_restart: false,
         created_at: Utc::now(),
         last_launched_at: None,
-        wallpaper_path: None,
     };
 
     if let Err(e) = insert_instance(&state, &instance).await {
@@ -162,20 +161,6 @@ pub async fn duplicate_instance(
         .map_err(|e| format!("Failed to copy server files: {e}"))?;
     }
 
-    let wallpaper_path = if let Some(src_wallpaper) = &source.wallpaper_path {
-        let ext = Path::new(src_wallpaper)
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("png");
-        let dest = new_dir.join(format!("wallpaper.{ext}"));
-        match tokio::fs::copy(src_wallpaper, &dest).await {
-            Ok(_) => Some(dest.to_string_lossy().to_string()),
-            Err(_) => None,
-        }
-    } else {
-        None
-    };
-
     let instance = Instance {
         id: Uuid::new_v4().to_string(),
         name: new_name,
@@ -191,12 +176,11 @@ pub async fn duplicate_instance(
         server_args: source.server_args.clone(),
         status: ServerStatus::Stopped,
         // Deliberately not carried over: a clone auto-starting alongside
-        // its source the next time ModForge opens would be surprising.
+        // its source the next time ModpackPilot opens would be surprising.
         auto_start: false,
         auto_restart: source.auto_restart,
         created_at: Utc::now(),
         last_launched_at: None,
-        wallpaper_path,
     };
 
     if let Err(e) = insert_instance(&state, &instance).await {
@@ -405,8 +389,8 @@ pub(crate) async fn insert_instance(
     sqlx::query(
         "INSERT INTO instances (id, name, minecraft_version, loader, loader_version, java_installation_id,
                                  min_ram_mb, max_ram_mb, server_directory, server_jar, jvm_args, server_args,
-                                 status, auto_start, auto_restart, created_at, last_launched_at, wallpaper_path)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                                 status, auto_start, auto_restart, created_at, last_launched_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&instance.id)
     .bind(&instance.name)
@@ -425,7 +409,6 @@ pub(crate) async fn insert_instance(
     .bind(instance.auto_restart as i64)
     .bind(instance.created_at)
     .bind(instance.last_launched_at)
-    .bind(&instance.wallpaper_path)
     .execute(&state.db)
     .await
     .map_err(|e| format!("Failed to save instance: {e}"))?;
@@ -434,7 +417,7 @@ pub(crate) async fn insert_instance(
 }
 
 /// Writes a portable snapshot of the instance's metadata into its own
-/// directory, per ModForge's `instances/<name>/instance.json` layout.
+/// directory, per ModpackPilot's `instances/<name>/instance.json` layout.
 /// SQLite remains the source of truth the app reads from; this file exists
 /// so an instance folder is self-describing if copied or inspected outside
 /// the app.

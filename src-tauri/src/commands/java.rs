@@ -60,7 +60,7 @@ pub async fn detect_java_installations(state: State<'_, AppState>) -> Result<Vec
     list_java_installations(state).await
 }
 
-/// Marks one Java installation as the default ModForge suggests for new
+/// Marks one Java installation as the default ModpackPilot suggests for new
 /// instances. Purely a UI convenience - it doesn't change any existing
 /// instance's `java_installation_id`.
 #[tauri::command]

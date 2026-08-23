@@ -75,7 +75,7 @@ impl From<&str> for ServerStatus {
     }
 }
 
-/// A Minecraft server instance managed by ModForge.
+/// A Minecraft server instance managed by ModpackPilot.
 ///
 /// This is the shape exposed to the frontend. It is assembled from
 /// [`InstanceRow`], which mirrors the raw SQLite columns.
@@ -99,10 +99,6 @@ pub struct Instance {
     pub auto_restart: bool,
     pub created_at: DateTime<Utc>,
     pub last_launched_at: Option<DateTime<Utc>>,
-    /// Absolute path to a copied-in background image, if the user set one.
-    /// Served to the frontend as a data URI via `read_instance_wallpaper`
-    /// rather than a raw filesystem path.
-    pub wallpaper_path: Option<String>,
 }
 
 /// Raw row shape as stored in SQLite. Kept separate from [`Instance`] because
@@ -127,7 +123,6 @@ pub struct InstanceRow {
     pub auto_restart: i64,
     pub created_at: DateTime<Utc>,
     pub last_launched_at: Option<DateTime<Utc>>,
-    pub wallpaper_path: Option<String>,
 }
 
 /// Input for creating a new instance manually (Phase 2). The importer
@@ -180,7 +175,6 @@ impl From<InstanceRow> for Instance {
             auto_restart: row.auto_restart != 0,
             created_at: row.created_at,
             last_launched_at: row.last_launched_at,
-            wallpaper_path: row.wallpaper_path,
         }
     }
 }

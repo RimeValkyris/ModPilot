@@ -2,7 +2,7 @@ use std::path::Path;
 
 use tracing_appender::non_blocking::WorkerGuard;
 
-/// Initializes application-level logging (ModForge's own errors/diagnostics -
+/// Initializes application-level logging (ModpackPilot's own errors/diagnostics -
 /// separate from a Minecraft instance's `logs/`, which the server module
 /// writes independently).
 ///
@@ -10,7 +10,7 @@ use tracing_appender::non_blocking::WorkerGuard;
 /// lifetime (dropping it stops the background writer thread), so the caller
 /// should hold onto it in a variable that outlives `tauri::Builder::run`.
 pub fn init(logs_dir: &Path) -> WorkerGuard {
-    let file_appender = tracing_appender::rolling::daily(logs_dir, "modforge.log");
+    let file_appender = tracing_appender::rolling::daily(logs_dir, "modpackpilot.log");
     let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
 
     let file_layer = tracing_subscriber::fmt::layer()

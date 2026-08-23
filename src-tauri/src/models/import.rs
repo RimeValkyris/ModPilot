@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use super::ServerLoader;
 
 /// Where an import's source files come from. The frontend gets this path
-/// via a native file/folder picker or a drag-and-drop drop event - ModForge
+/// via a native file/folder picker or a drag-and-drop drop event - ModpackPilot
 /// never lets the user type an arbitrary path into a text field.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]

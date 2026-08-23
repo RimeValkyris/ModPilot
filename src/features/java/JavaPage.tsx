@@ -36,7 +36,7 @@ export function JavaPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Java</h1>
           <p className="text-sm text-muted-foreground">
-            Java installations ModForge detected on this machine.
+            Java installations ModpackPilot detected on this machine.
           </p>
         </div>
         <Button variant="outline" onClick={handleRescan} disabled={isScanning}>

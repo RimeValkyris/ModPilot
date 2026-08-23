@@ -27,7 +27,7 @@ function PageFallback() {
   return <div className="p-8 text-sm text-muted-foreground">Loading…</div>;
 }
 
-// HashRouter (not BrowserRouter): ModForge is served from the filesystem via
+// HashRouter (not BrowserRouter): ModpackPilot is served from the filesystem via
 // Tauri's webview, not from a real HTTP server, so there's no server to
 // handle history-API deep links.
 function App() {

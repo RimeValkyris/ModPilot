@@ -5,7 +5,7 @@ import type { Instance } from "@/types/instance";
 /**
  * Compact CPU/RAM/uptime readout, shown only while an instance is RUNNING -
  * there's nothing to measure otherwise. No TPS or player count here: those
- * can't be read from the OS process, and ModForge doesn't parse the
+ * can't be read from the OS process, and ModpackPilot doesn't parse the
  * server's own stats reliably enough yet to display them without risking a
  * misleading number.
  *

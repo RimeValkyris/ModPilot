@@ -37,7 +37,6 @@ export interface Instance {
   autoRestart: boolean;
   createdAt: string;
   lastLaunchedAt: string | null;
-  wallpaperPath: string | null;
 }
 
 /** Input for `update_instance_settings` (Configuration tab). */

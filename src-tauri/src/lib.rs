@@ -58,10 +58,10 @@ pub fn run() {
             // default stderr output is otherwise invisible - route it into
             // the same log file the crash-log export reads from.
             std::panic::set_hook(Box::new(|panic_info| {
-                tracing::error!("ModForge panicked: {panic_info}");
+                tracing::error!("ModpackPilot panicked: {panic_info}");
             }));
 
-            tracing::info!("ModForge starting up, app data dir: {:?}", paths.app_data_dir);
+            tracing::info!("ModpackPilot starting up, app data dir: {:?}", paths.app_data_dir);
 
             // `setup` is synchronous; block briefly on the one-time pool/migration
             // step so every command that runs afterward can assume the DB is ready.
@@ -88,7 +88,7 @@ pub fn run() {
 
             // Launch any instance marked auto-start, once the window/state
             // are ready. Fire-and-forget: a failure here (e.g. a missing
-            // JAR) shouldn't block ModForge from opening.
+            // JAR) shouldn't block ModpackPilot from opening.
             let auto_start_handle = handle.clone();
             tauri::async_runtime::spawn(async move {
                 let db = &auto_start_handle.state::<AppState>().db;
@@ -109,7 +109,7 @@ pub fn run() {
                 }
             });
 
-            // Guard against closing ModForge while a Minecraft server is
+            // Guard against closing ModpackPilot while a Minecraft server is
             // still running: without this, the child process would be
             // orphaned (left running with no UI to manage it) rather than
             // shut down cleanly. If "minimize to tray" is on, a close
@@ -166,12 +166,6 @@ pub fn run() {
             commands::server::send_console_command,
             commands::server::list_running_instance_ids,
             commands::logs::read_latest_log,
-            commands::wallpaper::set_instance_wallpaper,
-            commands::wallpaper::clear_instance_wallpaper,
-            commands::wallpaper::read_instance_wallpaper,
-            commands::wallpaper::set_app_wallpaper,
-            commands::wallpaper::clear_app_wallpaper,
-            commands::wallpaper::read_app_wallpaper,
             commands::monitor::get_resource_usage,
             commands::monitor::get_all_resource_usage,
             commands::diagnostics::get_app_logs_dir,
@@ -198,14 +192,14 @@ pub fn run() {
         .expect("error while running tauri application");
 }
 
-/// Builds the tray icon: left-click (or the "Show ModForge" item) restores
+/// Builds the tray icon: left-click (or the "Show ModpackPilot" item) restores
 /// the window, "Quit" goes through the same running-servers safety check as
 /// the window's own close button.
 fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
     use tauri::menu::{Menu, MenuItem};
     use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 
-    let show_item = MenuItem::with_id(app, "show", "Show ModForge", true, None::<&str>)?;
+    let show_item = MenuItem::with_id(app, "show", "Show ModpackPilot", true, None::<&str>)?;
     let quit_item = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&show_item, &quit_item])?;
 
@@ -217,7 +211,7 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
     TrayIconBuilder::new()
         .icon(icon)
         .menu(&menu)
-        .tooltip("ModForge")
+        .tooltip("ModpackPilot")
         .on_menu_event(|app, event| match event.id.as_ref() {
             "show" => {
                 if let Some(window) = app.get_webview_window("main") {

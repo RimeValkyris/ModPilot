@@ -39,7 +39,6 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useInstances } from "@/hooks/useInstances";
 import { useJavaStore } from "@/stores/javaStore";
-import { useWallpaperStore } from "@/stores/wallpaperStore";
 import { ResourceUsageRow } from "@/features/dashboard/ResourceUsageRow";
 import { api } from "@/lib/tauri";
 import { STATUS_DOT, STATUS_LABEL } from "@/lib/serverStatus";
@@ -52,8 +51,6 @@ export function InstanceCard({ instance }: { instance: Instance }) {
   const navigate = useNavigate();
   const { renameInstance, duplicateInstance, deleteInstance, setInstanceJava } = useInstances();
   const { installations, fetchInstallations } = useJavaStore();
-  const { wallpapers, fetchWallpaper } = useWallpaperStore();
-  const wallpaper = wallpapers[instance.id];
   const [renameOpen, setRenameOpen] = useState(false);
   const [duplicateOpen, setDuplicateOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -74,10 +71,6 @@ export function InstanceCard({ instance }: { instance: Instance }) {
   useEffect(() => {
     fetchInstallations();
   }, [fetchInstallations]);
-
-  useEffect(() => {
-    fetchWallpaper(instance.id);
-  }, [instance.id, fetchWallpaper]);
 
   async function runProcessAction(action: () => Promise<void>, failureMessage: string) {
     setIsProcessActionPending(true);
@@ -157,18 +150,7 @@ export function InstanceCard({ instance }: { instance: Instance }) {
   }
 
   return (
-    <li
-      className="relative flex flex-col gap-3 overflow-hidden rounded-xl border border-border bg-card p-4"
-      style={
-        wallpaper
-          ? {
-              backgroundImage: `linear-gradient(to bottom, rgba(0,0,0,0.35), var(--card) 85%), url(${wallpaper})`,
-              backgroundSize: "cover",
-              backgroundPosition: "center",
-            }
-          : undefined
-      }
-    >
+    <li className="relative flex flex-col gap-3 overflow-hidden rounded-xl border border-border bg-card p-4">
       <div className="flex items-start justify-between gap-2">
         <div>
           <p className="font-medium">{instance.name}</p>
