@@ -430,7 +430,13 @@ function DangerZoneSection() {
         </Button>
       </SettingRow>
 
-      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+      <AlertDialog
+        open={confirmOpen}
+        onOpenChange={(next) => {
+          if (!next && isResetting) return;
+          setConfirmOpen(next);
+        }}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Forget all Java installations?</AlertDialogTitle>
@@ -441,7 +447,7 @@ function DangerZoneSection() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel disabled={isResetting}>Cancel</AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-white hover:bg-destructive/90"
               disabled={isResetting}

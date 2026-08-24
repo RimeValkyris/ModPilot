@@ -136,6 +136,25 @@ fn parse_vendor(text: &str) -> Option<String> {
         .map(|v| v.to_string())
 }
 
+/// Oracle's installer keeps `PATH` pointing at "whichever JDK is currently
+/// active" by adding a `javapath` folder to `PATH` containing hard-linked
+/// copies of `java.exe`/`javaw.exe`, physically placed in a per-install
+/// `javapath_target_<id>` subfolder. Hard links have no single "original"
+/// path for `canonicalize()` to resolve them back to, so without this
+/// filter every Oracle JDK shows up twice: once through this redirector,
+/// once through its real install folder under `Program Files\Java`.
+fn is_oracle_path_redirector(path: &Path) -> bool {
+    path.components().any(|c| {
+        c.as_os_str()
+            .to_str()
+            .map(|s| {
+                let lower = s.to_lowercase();
+                lower == "javapath" || lower.starts_with("javapath_target")
+            })
+            .unwrap_or(false)
+    })
+}
+
 /// Scans the system for Java installations, deduplicated by resolved path.
 /// Runs `java -version` once per unique candidate found, so this does
 /// blocking I/O and should be called from `spawn_blocking`.
@@ -144,6 +163,9 @@ pub fn detect_java_installations() -> Vec<DetectedJava> {
     let mut results = Vec::new();
 
     for candidate in find_candidate_paths() {
+        if is_oracle_path_redirector(&candidate) {
+            continue;
+        }
         if !candidate.is_file() {
             continue;
         }

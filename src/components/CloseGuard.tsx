@@ -46,7 +46,13 @@ export function CloseGuard() {
   }
 
   return (
-    <AlertDialog open={open} onOpenChange={setOpen}>
+    <AlertDialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next && isStopping) return;
+        setOpen(next);
+      }}
+    >
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>Servers are still running</AlertDialogTitle>

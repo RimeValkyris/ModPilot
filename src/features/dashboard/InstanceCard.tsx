@@ -37,11 +37,12 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { useInstances } from "@/hooks/useInstances";
+import { useInstancesStore } from "@/stores/instancesStore";
 import { useJavaStore } from "@/stores/javaStore";
 import { ResourceUsageRow } from "@/features/dashboard/ResourceUsageRow";
 import { api } from "@/lib/tauri";
-import { STATUS_DOT, STATUS_LABEL } from "@/lib/serverStatus";
+import { STATUS_BADGE_CLASS, STATUS_LABEL } from "@/lib/serverStatus";
+import { ServerAvatarPlaceholder } from "@/components/ServerAvatarPlaceholder";
 import { getRequiredJavaMajor, parseJavaMajor } from "@/lib/javaRequirement";
 import type { Instance } from "@/types/instance";
 
@@ -49,7 +50,12 @@ const NO_JAVA_VALUE = "__none__";
 
 export function InstanceCard({ instance }: { instance: Instance }) {
   const navigate = useNavigate();
-  const { renameInstance, duplicateInstance, deleteInstance, setInstanceJava } = useInstances();
+  // Store directly (not the `useInstances()` wrapper): this component only
+  // needs mutation actions, and with one InstanceCard per server, going
+  // through the fetch-on-mount wrapper would fire a redundant list_instances
+  // call per card every time the dashboard renders.
+  const { renameInstance, duplicateInstance, deleteInstance, setInstanceJava } =
+    useInstancesStore();
   const { installations, fetchInstallations } = useJavaStore();
   const [renameOpen, setRenameOpen] = useState(false);
   const [duplicateOpen, setDuplicateOpen] = useState(false);
@@ -59,6 +65,7 @@ export function InstanceCard({ instance }: { instance: Instance }) {
   const [duplicateNameDraft, setDuplicateNameDraft] = useState(`${instance.name} (Copy)`);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isProcessActionPending, setIsProcessActionPending] = useState(false);
+  const [avatar, setAvatar] = useState<string | null>(null);
 
   const canDelete = instance.status === "stopped" || instance.status === "crashed";
 
@@ -71,6 +78,19 @@ export function InstanceCard({ instance }: { instance: Instance }) {
   useEffect(() => {
     fetchInstallations();
   }, [fetchInstallations]);
+
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .readInstanceAvatar(instance.id)
+      .then((dataUri) => {
+        if (!cancelled) setAvatar(dataUri);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [instance.id]);
 
   async function runProcessAction(action: () => Promise<void>, failureMessage: string) {
     setIsProcessActionPending(true);
@@ -150,13 +170,24 @@ export function InstanceCard({ instance }: { instance: Instance }) {
   }
 
   return (
-    <li className="relative flex flex-col gap-3 overflow-hidden rounded-xl border border-border bg-card p-4">
+    <li className="relative flex flex-col gap-3 overflow-hidden rounded-xl border border-border bg-card p-4 shadow-sm transition-shadow hover:shadow-md">
       <div className="flex items-start justify-between gap-2">
-        <div>
-          <p className="font-medium">{instance.name}</p>
-          <p className="text-sm text-muted-foreground">
-            {instance.minecraftVersion ?? "Unknown version"} · {instance.loader}
-          </p>
+        <div className="flex items-center gap-3">
+          {avatar ? (
+            <img
+              src={avatar}
+              alt=""
+              className="size-10 shrink-0 rounded-lg border border-border object-cover"
+            />
+          ) : (
+            <ServerAvatarPlaceholder className="size-10 shrink-0 rounded-lg border border-border" />
+          )}
+          <div>
+            <p className="font-medium">{instance.name}</p>
+            <p className="text-sm text-muted-foreground">
+              {instance.minecraftVersion ?? "Unknown version"} · {instance.loader}
+            </p>
+          </div>
         </div>
         <DropdownMenu>
           <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" />}>
@@ -190,8 +221,7 @@ export function InstanceCard({ instance }: { instance: Instance }) {
       </div>
 
       <div className="flex items-center gap-1.5">
-        <span className={`size-2 rounded-full ${STATUS_DOT[instance.status]}`} />
-        <Badge variant="outline">{STATUS_LABEL[instance.status]}</Badge>
+        <Badge className={STATUS_BADGE_CLASS[instance.status]}>{STATUS_LABEL[instance.status]}</Badge>
       </div>
 
       {instance.status === "running" && <ResourceUsageRow instance={instance} />}
@@ -305,8 +335,14 @@ export function InstanceCard({ instance }: { instance: Instance }) {
         </Button>
       </div>
 
-      <Dialog open={renameOpen} onOpenChange={setRenameOpen}>
-        <DialogContent>
+      <Dialog
+        open={renameOpen}
+        onOpenChange={(next) => {
+          if (!next && isSubmitting) return;
+          setRenameOpen(next);
+        }}
+      >
+        <DialogContent showCloseButton={!isSubmitting}>
           <form onSubmit={handleRename} className="flex flex-col gap-4">
             <DialogHeader>
               <DialogTitle>Rename instance</DialogTitle>
@@ -329,8 +365,18 @@ export function InstanceCard({ instance }: { instance: Instance }) {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={duplicateOpen} onOpenChange={setDuplicateOpen}>
-        <DialogContent>
+      <Dialog
+        open={duplicateOpen}
+        onOpenChange={(next) => {
+          // Duplicating copies the entire server directory (mods, world,
+          // config) - for a large modpack this can take a real amount of
+          // time, so closing this mid-copy is the same class of bug as the
+          // import dialog: the copy keeps running, but it looks abandoned.
+          if (!next && isSubmitting) return;
+          setDuplicateOpen(next);
+        }}
+      >
+        <DialogContent showCloseButton={!isSubmitting}>
           <form onSubmit={handleDuplicate} className="flex flex-col gap-4">
             <DialogHeader>
               <DialogTitle>Duplicate instance</DialogTitle>
@@ -354,7 +400,13 @@ export function InstanceCard({ instance }: { instance: Instance }) {
         </DialogContent>
       </Dialog>
 
-      <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+      <AlertDialog
+        open={deleteOpen}
+        onOpenChange={(next) => {
+          if (!next && isSubmitting) return;
+          setDeleteOpen(next);
+        }}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete "{instance.name}"?</AlertDialogTitle>
@@ -376,7 +428,13 @@ export function InstanceCard({ instance }: { instance: Instance }) {
         </AlertDialogContent>
       </AlertDialog>
 
-      <AlertDialog open={forceStopOpen} onOpenChange={setForceStopOpen}>
+      <AlertDialog
+        open={forceStopOpen}
+        onOpenChange={(next) => {
+          if (!next && isProcessActionPending) return;
+          setForceStopOpen(next);
+        }}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Force stop "{instance.name}"?</AlertDialogTitle>

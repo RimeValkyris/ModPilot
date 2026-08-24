@@ -1,12 +1,16 @@
+import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useInstances } from "@/hooks/useInstances";
-import { STATUS_DOT, STATUS_LABEL } from "@/lib/serverStatus";
+import { api } from "@/lib/tauri";
+import { STATUS_BADGE_CLASS, STATUS_LABEL } from "@/lib/serverStatus";
+import { ServerAvatarPlaceholder } from "@/components/ServerAvatarPlaceholder";
 import { Console } from "@/features/console/Console";
 import { InstanceSettingsForm } from "@/features/settings/InstanceSettingsForm";
+import { ServerPropertiesForm } from "@/features/settings/ServerPropertiesForm";
 import { ResourceUsageRow } from "@/features/dashboard/ResourceUsageRow";
 import { InstanceLogsTab } from "@/features/console/InstanceLogsTab";
 import { InstanceFilesTab } from "@/features/console/InstanceFilesTab";
@@ -31,6 +35,22 @@ export function InstanceDetailPage() {
   const instance = instances.find((i) => i.id === id);
 
   const activeTab: Tab = TABS.includes(tab as Tab) ? (tab as Tab) : "overview";
+
+  const [avatar, setAvatar] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!instance) return;
+    let cancelled = false;
+    api
+      .readInstanceAvatar(instance.id)
+      .then((dataUri) => {
+        if (!cancelled) setAvatar(dataUri);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [instance?.id]);
 
   if (isLoading && !instance) {
     return <div className="p-8 text-sm text-muted-foreground">Loading…</div>;
@@ -61,11 +81,17 @@ export function InstanceDetailPage() {
       </Button>
 
       <header className="flex items-center gap-3 rounded-xl p-4">
+        {avatar ? (
+          <img
+            src={avatar}
+            alt=""
+            className="size-10 shrink-0 rounded-lg border border-border object-cover"
+          />
+        ) : (
+          <ServerAvatarPlaceholder className="size-10 shrink-0 rounded-lg border border-border" />
+        )}
         <h1 className="text-2xl font-semibold tracking-tight">{instance.name}</h1>
-        <div className="flex items-center gap-1.5">
-          <span className={`size-2 rounded-full ${STATUS_DOT[instance.status]}`} />
-          <Badge variant="outline">{STATUS_LABEL[instance.status]}</Badge>
-        </div>
+        <Badge className={STATUS_BADGE_CLASS[instance.status]}>{STATUS_LABEL[instance.status]}</Badge>
       </header>
 
       <Tabs
@@ -147,7 +173,8 @@ export function InstanceDetailPage() {
         <TabsContent value="players">
           <InstancePlayersTab instanceId={instance.id} />
         </TabsContent>
-        <TabsContent value="configuration">
+        <TabsContent value="configuration" className="flex flex-col gap-4">
+          <ServerPropertiesForm instance={instance} />
           <InstanceSettingsForm instance={instance} />
         </TabsContent>
         <TabsContent value="logs">

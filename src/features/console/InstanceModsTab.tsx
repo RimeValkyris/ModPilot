@@ -23,6 +23,7 @@ export function InstanceModsTab({ instance }: { instance: Instance }) {
   const [mods, setMods] = useState<ModInfo[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [pendingDelete, setPendingDelete] = useState<ModInfo | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   async function refresh() {
     setIsLoading(true);
@@ -55,13 +56,15 @@ export function InstanceModsTab({ instance }: { instance: Instance }) {
   }
 
   async function handleDelete(mod: ModInfo) {
+    setIsDeleting(true);
     try {
       await api.deleteMod(instance.id, mod.fileName);
       setMods((prev) => prev.filter((m) => m.fileName !== mod.fileName));
+      setPendingDelete(null);
     } catch (err) {
       toast.error("Failed to delete mod", { description: String(err) });
     } finally {
-      setPendingDelete(null);
+      setIsDeleting(false);
     }
   }
 
@@ -108,7 +111,13 @@ export function InstanceModsTab({ instance }: { instance: Instance }) {
         </ul>
       )}
 
-      <AlertDialog open={pendingDelete !== null} onOpenChange={() => setPendingDelete(null)}>
+      <AlertDialog
+        open={pendingDelete !== null}
+        onOpenChange={(next) => {
+          if (!next && isDeleting) return;
+          if (!next) setPendingDelete(null);
+        }}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete "{pendingDelete?.displayName}"?</AlertDialogTitle>
@@ -117,12 +126,13 @@ export function InstanceModsTab({ instance }: { instance: Instance }) {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-white hover:bg-destructive/90"
+              disabled={isDeleting}
               onClick={() => pendingDelete && handleDelete(pendingDelete)}
             >
-              Delete
+              {isDeleting ? "Deleting…" : "Delete"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

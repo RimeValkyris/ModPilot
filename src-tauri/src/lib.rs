@@ -189,6 +189,14 @@ pub fn run() {
             commands::settings::get_instances_dir,
             commands::settings::set_instances_dir,
             commands::settings::quit_app,
+            commands::server_icon::set_server_icon,
+            commands::server_icon::clear_server_icon,
+            commands::server_icon::read_server_icon,
+            commands::server_properties::read_server_properties,
+            commands::server_properties::write_server_properties,
+            commands::instance_avatar::set_instance_avatar,
+            commands::instance_avatar::clear_instance_avatar,
+            commands::instance_avatar::read_instance_avatar,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

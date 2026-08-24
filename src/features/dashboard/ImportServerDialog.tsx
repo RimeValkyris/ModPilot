@@ -23,7 +23,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useInstances } from "@/hooks/useInstances";
+import { useInstancesStore } from "@/stores/instancesStore";
 import { api } from "@/lib/tauri";
 import { getRequiredJavaMajor } from "@/lib/javaRequirement";
 import { SERVER_LOADERS, type ServerLoader } from "@/types/instance";
@@ -50,7 +50,7 @@ function sourceLabel(source: ImportSource): string {
 }
 
 export function ImportServerDialog() {
-  const { importInstance } = useInstances();
+  const { importInstance } = useInstancesStore();
   const [open, setOpen] = useState(false);
   const [step, setStep] = useState<Step>("select");
   const [source, setSource] = useState<ImportSource | null>(null);
@@ -177,6 +177,11 @@ export function ImportServerDialog() {
     <Dialog
       open={open}
       onOpenChange={(next) => {
+        // Block closing (Escape, backdrop click, the corner X) while an
+        // import is actually running - the extraction/copy keeps going in
+        // the background regardless, so closing here just makes it look
+        // like nothing happened while a large modpack is still mid-copy.
+        if (!next && isSubmitting) return;
         setOpen(next);
         if (!next) reset();
       }}
@@ -185,7 +190,7 @@ export function ImportServerDialog() {
         <PackagePlus />
         Import Server
       </DialogTrigger>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-md" showCloseButton={!isSubmitting}>
         {step === "select" && (
           <div className="flex flex-col gap-4">
             <DialogHeader>
@@ -237,6 +242,15 @@ export function ImportServerDialog() {
               <DialogDescription>{sourceLabel(source)}</DialogDescription>
             </DialogHeader>
 
+            {isSubmitting && (
+              <p className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                Copying files… large modpacks can take a while. This dialog
+                will close automatically when it's done - please don't close
+                ModpackPilot in the meantime.
+              </p>
+            )}
+
+            <fieldset disabled={isSubmitting} className="contents">
             <div className="flex flex-wrap gap-1.5">
               {detected.serverJar && <Badge variant="secondary">JAR: {detected.serverJar}</Badge>}
               {detected.hasModsFolder && (
@@ -354,6 +368,7 @@ export function ImportServerDialog() {
                 {isSubmitting ? "Importing…" : "Import"}
               </Button>
             </DialogFooter>
+            </fieldset>
           </form>
         )}
       </DialogContent>

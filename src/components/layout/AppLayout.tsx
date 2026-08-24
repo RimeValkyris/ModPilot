@@ -19,7 +19,7 @@ export function AppLayout() {
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-background text-foreground">
       <Sidebar />
-      <main className="flex-1 overflow-y-auto">
+      <main className="flex-1 overflow-y-auto border-l border-border/60 bg-muted/30">
         <Outlet />
       </main>
     </div>

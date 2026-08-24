@@ -20,7 +20,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useInstances } from "@/hooks/useInstances";
+import { useInstancesStore } from "@/stores/instancesStore";
 import { SERVER_LOADERS, type ServerLoader } from "@/types/instance";
 import { getRequiredJavaMajor } from "@/lib/javaRequirement";
 import { api } from "@/lib/tauri";
@@ -43,7 +43,7 @@ const initialState = {
 };
 
 export function CreateInstanceDialog() {
-  const { createInstance } = useInstances();
+  const { createInstance } = useInstancesStore();
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(initialState);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -93,12 +93,18 @@ export function CreateInstanceDialog() {
   }
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next && isSubmitting) return;
+        setOpen(next);
+      }}
+    >
       <DialogTrigger render={<Button variant="outline" />}>
         <Plus />
         Create Server
       </DialogTrigger>
-      <DialogContent>
+      <DialogContent showCloseButton={!isSubmitting}>
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
           <DialogHeader>
             <DialogTitle>Create Server</DialogTitle>

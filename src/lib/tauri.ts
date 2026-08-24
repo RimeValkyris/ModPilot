@@ -118,4 +118,24 @@ export const api = {
   quitApp: () => invoke<void>("quit_app"),
 
   resetJavaInstallations: () => invoke<void>("reset_java_installations"),
+
+  setServerIcon: (id: string, sourcePath: string) =>
+    invoke<void>("set_server_icon", { id, sourcePath }),
+
+  clearServerIcon: (id: string) => invoke<void>("clear_server_icon", { id }),
+
+  readServerIcon: (id: string) => invoke<string | null>("read_server_icon", { id }),
+
+  readServerProperties: (id: string) =>
+    invoke<Record<string, string>>("read_server_properties", { id }),
+
+  writeServerProperties: (id: string, updates: Record<string, string>) =>
+    invoke<void>("write_server_properties", { id, updates }),
+
+  setInstanceAvatar: (id: string, sourcePath: string) =>
+    invoke<void>("set_instance_avatar", { id, sourcePath }),
+
+  clearInstanceAvatar: (id: string) => invoke<void>("clear_instance_avatar", { id }),
+
+  readInstanceAvatar: (id: string) => invoke<string | null>("read_instance_avatar", { id }),
 };

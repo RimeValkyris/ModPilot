@@ -12,7 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useInstances } from "@/hooks/useInstances";
+import { useInstancesStore } from "@/stores/instancesStore";
 import { api } from "@/lib/tauri";
 import type { Instance } from "@/types/instance";
 
@@ -26,7 +26,7 @@ function linesToArgs(text: string): string[] {
 }
 
 export function InstanceSettingsForm({ instance }: { instance: Instance }) {
-  const { updateInstanceSettings } = useInstances();
+  const { updateInstanceSettings } = useInstancesStore();
 
   const [jars, setJars] = useState<string[]>([]);
   const [serverJar, setServerJar] = useState(instance.serverJar ?? NO_JAR_VALUE);

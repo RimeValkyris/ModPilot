@@ -31,6 +31,8 @@ export function InstanceFilesTab({ instance }: { instance: Instance }) {
   const [isCreating, setIsCreating] = useState(false);
   const [pendingRestore, setPendingRestore] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
+  const [isRestoring, setIsRestoring] = useState(false);
+  const [isDeletingBackup, setIsDeletingBackup] = useState(false);
 
   async function refresh() {
     setIsLoading(true);
@@ -71,24 +73,28 @@ export function InstanceFilesTab({ instance }: { instance: Instance }) {
   }
 
   async function handleRestore(name: string) {
+    setIsRestoring(true);
     try {
       await api.restoreWorldBackup(instance.id, name);
       toast.success("World restored");
+      setPendingRestore(null);
     } catch (err) {
       toast.error("Failed to restore backup", { description: String(err) });
     } finally {
-      setPendingRestore(null);
+      setIsRestoring(false);
     }
   }
 
   async function handleDelete(name: string) {
+    setIsDeletingBackup(true);
     try {
       await api.deleteWorldBackup(instance.id, name);
       setBackups((prev) => prev.filter((b) => b.name !== name));
+      setPendingDelete(null);
     } catch (err) {
       toast.error("Failed to delete backup", { description: String(err) });
     } finally {
-      setPendingDelete(null);
+      setIsDeletingBackup(false);
     }
   }
 
@@ -164,7 +170,13 @@ export function InstanceFilesTab({ instance }: { instance: Instance }) {
         )}
       </section>
 
-      <AlertDialog open={pendingRestore !== null} onOpenChange={() => setPendingRestore(null)}>
+      <AlertDialog
+        open={pendingRestore !== null}
+        onOpenChange={(next) => {
+          if (!next && isRestoring) return;
+          if (!next) setPendingRestore(null);
+        }}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Restore "{pendingRestore}"?</AlertDialogTitle>
@@ -175,18 +187,25 @@ export function InstanceFilesTab({ instance }: { instance: Instance }) {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel disabled={isRestoring}>Cancel</AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-white hover:bg-destructive/90"
+              disabled={isRestoring}
               onClick={() => pendingRestore && handleRestore(pendingRestore)}
             >
-              Restore
+              {isRestoring ? "Restoring…" : "Restore"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
 
-      <AlertDialog open={pendingDelete !== null} onOpenChange={() => setPendingDelete(null)}>
+      <AlertDialog
+        open={pendingDelete !== null}
+        onOpenChange={(next) => {
+          if (!next && isDeletingBackup) return;
+          if (!next) setPendingDelete(null);
+        }}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete "{pendingDelete}"?</AlertDialogTitle>
@@ -195,12 +214,13 @@ export function InstanceFilesTab({ instance }: { instance: Instance }) {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel disabled={isDeletingBackup}>Cancel</AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-white hover:bg-destructive/90"
+              disabled={isDeletingBackup}
               onClick={() => pendingDelete && handleDelete(pendingDelete)}
             >
-              Delete
+              {isDeletingBackup ? "Deleting…" : "Delete"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
