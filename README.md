@@ -2,12 +2,9 @@
 
 A native desktop launcher and manager for Minecraft modpack servers. Import
 existing server files or create one from scratch, then configure, launch,
-monitor, and manage it — no browser tab, no hosted backend, no Docker.
+monitor, and manage it.
 
-Built as a hobby project and shared as open source in the hope it's useful
-to other people who host modpack servers for their friends. Bug reports,
-feature ideas, and pull requests are all genuinely welcome — see
-[Contributing](#contributing) below. 👋
+Built as a hobby project and shared as open source, Im tired boss. Just do what ever the hell you can improve this shitty app.
 
 <!-- Tech stack -->
 ![Tauri](https://img.shields.io/badge/Tauri-2-24C8DB?logo=tauri&logoColor=white)
@@ -157,9 +154,8 @@ are planned but not yet built.
 ## Contributing
 
 Contributions of all sizes are welcome — bug reports, feature requests,
-docs fixes, and code. See [CONTRIBUTING.md](CONTRIBUTING.md) for how to get
-set up and the conventions this codebase follows, and
-[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) for how we treat each other here.
+docs fixes, and code. See [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) for how
+we treat each other here.
 
 If you're not sure where to start, check the open issues, or open a new
 one describing what you'd like to work on — happy to talk through the
