@@ -39,6 +39,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useInstancesStore } from "@/stores/instancesStore";
 import { useJavaStore } from "@/stores/javaStore";
+import { useInstanceAvatar } from "@/hooks/useInstanceAvatar";
 import { ResourceUsageRow } from "@/features/dashboard/ResourceUsageRow";
 import { api } from "@/lib/tauri";
 import { STATUS_BADGE_CLASS, STATUS_LABEL } from "@/lib/serverStatus";
@@ -65,7 +66,7 @@ export function InstanceCard({ instance }: { instance: Instance }) {
   const [duplicateNameDraft, setDuplicateNameDraft] = useState(`${instance.name} (Copy)`);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isProcessActionPending, setIsProcessActionPending] = useState(false);
-  const [avatar, setAvatar] = useState<string | null>(null);
+  const [avatar] = useInstanceAvatar(instance.id);
 
   const canDelete = instance.status === "stopped" || instance.status === "crashed";
 
@@ -78,19 +79,6 @@ export function InstanceCard({ instance }: { instance: Instance }) {
   useEffect(() => {
     fetchInstallations();
   }, [fetchInstallations]);
-
-  useEffect(() => {
-    let cancelled = false;
-    api
-      .readInstanceAvatar(instance.id)
-      .then((dataUri) => {
-        if (!cancelled) setAvatar(dataUri);
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [instance.id]);
 
   async function runProcessAction(action: () => Promise<void>, failureMessage: string) {
     setIsProcessActionPending(true);

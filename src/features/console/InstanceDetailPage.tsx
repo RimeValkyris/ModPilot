@@ -1,11 +1,10 @@
-import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useInstances } from "@/hooks/useInstances";
-import { api } from "@/lib/tauri";
+import { useInstanceAvatar } from "@/hooks/useInstanceAvatar";
 import { STATUS_BADGE_CLASS, STATUS_LABEL } from "@/lib/serverStatus";
 import { ServerAvatarPlaceholder } from "@/components/ServerAvatarPlaceholder";
 import { Console } from "@/features/console/Console";
@@ -36,21 +35,7 @@ export function InstanceDetailPage() {
 
   const activeTab: Tab = TABS.includes(tab as Tab) ? (tab as Tab) : "overview";
 
-  const [avatar, setAvatar] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!instance) return;
-    let cancelled = false;
-    api
-      .readInstanceAvatar(instance.id)
-      .then((dataUri) => {
-        if (!cancelled) setAvatar(dataUri);
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [instance?.id]);
+  const [avatar] = useInstanceAvatar(instance?.id);
 
   if (isLoading && !instance) {
     return <div className="p-8 text-sm text-muted-foreground">Loading…</div>;

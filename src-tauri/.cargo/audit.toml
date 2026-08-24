@@ -1,0 +1,15 @@
+# Config for `cargo audit` (install: `cargo install cargo-audit`; run from
+# this directory: `cargo audit`).
+[advisories]
+ignore = [
+    # rsa's "Marvin Attack" timing side-channel (RUSTSEC-2023-0071, no fix
+    # available upstream). It's only reachable through sqlx-mysql /
+    # sqlx-postgres, which Cargo.lock lists as part of the `sqlx` umbrella
+    # crate's full optional-dependency surface - but this app only enables
+    # sqlx's "sqlite" feature (see ../Cargo.toml), and neither backend is
+    # ever actually compiled here. Verified two ways: `cargo tree -i rsa`
+    # finds no reachable edge for any target, and a real `cargo check`
+    # only ever compiles sqlx-core/sqlx-sqlite, never sqlx-mysql. Revisit
+    # if the "mysql"/"postgres" sqlx features are ever enabled.
+    "RUSTSEC-2023-0071",
+]

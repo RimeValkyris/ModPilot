@@ -102,13 +102,12 @@ pub async fn write_server_properties(
             lines.push(line.to_string());
             continue;
         }
-        match trimmed.split_once('=') {
-            Some((key, _)) if remaining.contains_key(key.trim()) => {
-                let key = key.trim().to_string();
-                let value = remaining.remove(&key).unwrap();
-                lines.push(format!("{key}={value}"));
-            }
-            _ => lines.push(line.to_string()),
+        let matched = trimmed
+            .split_once('=')
+            .and_then(|(key, _)| remaining.remove(key.trim()).map(|value| (key.trim().to_string(), value)));
+        match matched {
+            Some((key, value)) => lines.push(format!("{key}={value}")),
+            None => lines.push(line.to_string()),
         }
     }
 
