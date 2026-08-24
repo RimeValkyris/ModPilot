@@ -4,7 +4,7 @@ A native desktop launcher and manager for Minecraft modpack servers. Import
 existing server files or create one from scratch, then configure, launch,
 monitor, and manage it.
 
-Built as a hobby project and shared as open source, Im tired boss. Just do what ever the hell you can improve this shitty app.
+Built as a side/hobby or what ever you call this project and shared as open source, Im tired boss. Just do what ever the hell you can improve this shitty app. This is also built using AI Assisted coding, It can be shitty sometimes, it needs human intervention.
 
 <!-- Tech stack -->
 ![Tauri](https://img.shields.io/badge/Tauri-2-24C8DB?logo=tauri&logoColor=white)
@@ -143,23 +143,7 @@ src-tauri/migrations/      SQL schema migrations
 
 ## Status
 
-ModpackPilot is under active incremental development. Core instance management,
-importing, Java detection/recommendation, process control (including
-auto-start/auto-restart), the live console, per-instance settings, world
-backups, mods/whitelist/ops management, resource monitoring, notifications,
-system tray, and app-wide settings (theme, instances location, defaults) are
-implemented. Automatic Java installation, Linux packaging, and auto-updates
-are planned but not yet built.
-
-## Contributing
-
-Contributions of all sizes are welcome — bug reports, feature requests,
-docs fixes, and code. See [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) for how
-we treat each other here.
-
-If you're not sure where to start, check the open issues, or open a new
-one describing what you'd like to work on — happy to talk through the
-approach before you dive in.
+ModpackPilot is under active incremental development, It's either I am going to have an Idea or not.
 
 ## License
 
