@@ -15,6 +15,48 @@ const START_SCRIPT_NAMES: &[&str] = &[
     "launch.bat",
 ];
 
+/// If every file in the list lives under one shared top-level folder - and
+/// none sit directly at the root - returns that folder's name. Many
+/// modpack export tools zip (or fold into an extracted folder) a server
+/// pack wrapped in a directory matching the pack's name, e.g.
+/// `MyServerPack-1.0/mods/...`, `MyServerPack-1.0/server.properties`. Without
+/// unwrapping that, every fixed path the rest of the app relies on
+/// (`server/mods`, `server/server.properties`, the server JAR itself) ends
+/// up one directory too deep for anything to find - the server still gets
+/// imported, but shows up looking empty (no mods, no detected JAR).
+pub(crate) fn detect_wrapper_folder(file_paths: &[String]) -> Option<String> {
+    if file_paths.is_empty() {
+        return None;
+    }
+    let mut wrapper: Option<&str> = None;
+    for path in file_paths {
+        let (first, _rest) = path.split_once('/')?;
+        if first.is_empty() {
+            return None;
+        }
+        match wrapper {
+            None => wrapper = Some(first),
+            Some(existing) if existing == first => {}
+            _ => return None,
+        }
+    }
+    wrapper.map(str::to_string)
+}
+
+fn strip_wrapper_folder(file_paths: Vec<String>) -> (Vec<String>, Option<String>) {
+    match detect_wrapper_folder(&file_paths) {
+        Some(wrapper) => {
+            let prefix = format!("{wrapper}/");
+            let stripped = file_paths
+                .into_iter()
+                .map(|p| p.strip_prefix(&prefix).unwrap_or(&p).to_string())
+                .collect();
+            (stripped, Some(wrapper))
+        }
+        None => (file_paths, None),
+    }
+}
+
 /// Runs detection against a real, already-extracted directory (either a
 /// freshly-imported instance's `server/` folder, or a folder the user
 /// picked directly for "import from folder").
@@ -30,7 +72,15 @@ pub fn detect_from_dir(root: &Path) -> DetectedServerInfo {
             }
         }
     }
-    analyze(&file_paths)
+    let (file_paths, wrapper) = strip_wrapper_folder(file_paths);
+    let mut info = analyze(&file_paths);
+    if let Some(wrapper) = wrapper {
+        info.warnings.insert(
+            0,
+            format!("Removed wrapping folder \"{wrapper}\" - its contents were treated as the server root."),
+        );
+    }
+    info
 }
 
 /// Runs detection against a ZIP archive's file listing, without extracting
@@ -50,7 +100,15 @@ pub fn detect_from_zip(zip_path: &Path) -> std::io::Result<DetectedServerInfo> {
         }
     }
 
-    Ok(analyze(&file_paths))
+    let (file_paths, wrapper) = strip_wrapper_folder(file_paths);
+    let mut info = analyze(&file_paths);
+    if let Some(wrapper) = wrapper {
+        info.warnings.insert(
+            0,
+            format!("Removed wrapping folder \"{wrapper}\" - its contents were treated as the server root."),
+        );
+    }
+    Ok(info)
 }
 
 /// Shared heuristics: given every file's path (forward-slash, relative to

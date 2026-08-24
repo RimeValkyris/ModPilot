@@ -21,6 +21,13 @@ export const useJavaStore = create<JavaState>((set, get) => ({
   error: null,
 
   fetchInstallations: async () => {
+    // Every InstanceCard calls this on mount, and a page can render many of
+    // them in the same render pass - without this guard, N cards mounting
+    // together fire N redundant `list_java_installations` IPC calls at
+    // once. `isLoading` flips synchronously via zustand's `set`, so the
+    // first call wins and the rest skip, all still landing in the same
+    // shared store state.
+    if (get().isLoading) return;
     set({ isLoading: true, error: null });
     try {
       const installations = await api.listJavaInstallations();

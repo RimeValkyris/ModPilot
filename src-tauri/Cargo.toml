@@ -1,8 +1,9 @@
 [package]
 name = "modpackpilot"
 version = "0.1.0"
-description = "A Tauri App"
-authors = ["you"]
+description = "A native desktop launcher and manager for Minecraft modpack servers"
+authors = ["ModpackPilot contributors"]
+license = "MIT"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -45,4 +46,14 @@ regex = "1"
 walkdir = "2"
 base64 = "0.22"
 sysinfo = "0.32"
+
+# The default release profile leaves real performance on the table for a
+# shipped desktop binary: no LTO, one codegen unit per crate (worse cross-
+# crate inlining), and debug symbols left in. This trades a slower release
+# build for a smaller, faster final `.exe` - worth it since it's built once
+# per release, not on every `cargo check` during development.
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
 

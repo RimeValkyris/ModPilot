@@ -170,61 +170,70 @@ export function InstanceCard({ instance }: { instance: Instance }) {
   }
 
   return (
-    <li className="relative flex flex-col gap-3 overflow-hidden rounded-xl border border-border bg-card p-4 shadow-sm transition-shadow hover:shadow-md">
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex items-center gap-3">
-          {avatar ? (
-            <img
-              src={avatar}
-              alt=""
-              className="size-10 shrink-0 rounded-lg border border-border object-cover"
-            />
-          ) : (
-            <ServerAvatarPlaceholder className="size-10 shrink-0 rounded-lg border border-border" />
-          )}
-          <div>
-            <p className="font-medium">{instance.name}</p>
-            <p className="text-sm text-muted-foreground">
-              {instance.minecraftVersion ?? "Unknown version"} · {instance.loader}
-            </p>
-          </div>
-        </div>
-        <DropdownMenu>
-          <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" />}>
-            <MoreVertical />
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem onClick={() => setRenameOpen(true)}>
-              <Pencil />
-              Rename
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => setDuplicateOpen(true)}>
-              <Copy />
-              Duplicate
-            </DropdownMenuItem>
-            {(instance.status === "running" || instance.status === "stopping") && (
-              <DropdownMenuItem variant="destructive" onClick={() => setForceStopOpen(true)}>
-                <OctagonX />
-                Force Stop
-              </DropdownMenuItem>
-            )}
-            <DropdownMenuItem
-              variant="destructive"
-              disabled={!canDelete}
-              onClick={() => setDeleteOpen(true)}
+    <li className="relative flex flex-col gap-3 overflow-hidden rounded-2xl border border-border bg-card p-3 shadow-sm transition-shadow hover:shadow-md">
+      {/* Large, poster-style icon area - the server's identity comes first,
+          everything else (status, actions, controls) is layered on or
+          stacked below it rather than competing for space in a header row. */}
+      <div className="relative aspect-square w-full overflow-hidden rounded-xl">
+        {avatar ? (
+          <img src={avatar} alt="" className="size-full object-cover" />
+        ) : (
+          <ServerAvatarPlaceholder className="size-full" />
+        )}
+
+        <div className="absolute inset-x-2 top-2 flex items-start justify-between gap-2">
+          <Badge className={`${STATUS_BADGE_CLASS[instance.status]} shadow-sm backdrop-blur-sm`}>
+            {STATUS_LABEL[instance.status]}
+          </Badge>
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              render={
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  className="bg-black/40 text-white hover:bg-black/60"
+                />
+              }
             >
-              <Trash2 />
-              Delete
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+              <MoreVertical />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={() => setRenameOpen(true)}>
+                <Pencil />
+                Rename
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setDuplicateOpen(true)}>
+                <Copy />
+                Duplicate
+              </DropdownMenuItem>
+              {(instance.status === "running" || instance.status === "stopping") && (
+                <DropdownMenuItem variant="destructive" onClick={() => setForceStopOpen(true)}>
+                  <OctagonX />
+                  Force Stop
+                </DropdownMenuItem>
+              )}
+              <DropdownMenuItem
+                variant="destructive"
+                disabled={!canDelete}
+                onClick={() => setDeleteOpen(true)}
+              >
+                <Trash2 />
+                Delete
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       </div>
 
-      <div className="flex items-center gap-1.5">
-        <Badge className={STATUS_BADGE_CLASS[instance.status]}>{STATUS_LABEL[instance.status]}</Badge>
-      </div>
+      <div className="flex flex-col gap-2 px-1">
+        <div>
+          <p className="truncate font-medium">{instance.name}</p>
+          <p className="truncate text-sm text-muted-foreground">
+            {instance.minecraftVersion ?? "Unknown version"} · {instance.loader}
+          </p>
+        </div>
 
-      {instance.status === "running" && <ResourceUsageRow instance={instance} />}
+        {instance.status === "running" && <ResourceUsageRow instance={instance} />}
 
       <div className="flex flex-col gap-1">
         <Select
@@ -234,15 +243,36 @@ export function InstanceCard({ instance }: { instance: Instance }) {
           <SelectTrigger className="w-full" size="sm">
             <SelectValue placeholder="No Java selected" />
           </SelectTrigger>
-          <SelectContent>
+          {/* Wider than the trigger and no longer locked to its width
+              (`alignItemWithTrigger`/`w-(--anchor-width)` from the shared
+              component would otherwise clip long entries like "Java 8.0.503
+              (x64) · Recommended" against the card's narrow trigger width -
+              see the truncation below for the same problem's other half). */}
+          <SelectContent alignItemWithTrigger={false} className="w-64">
             <SelectItem value={NO_JAVA_VALUE}>No Java selected</SelectItem>
+            {/* The assigned installation may no longer be in the detected
+                list (e.g. uninstalled, or cleared via "Forget all Java
+                installations"). Without this, the Select has no item to
+                match the value against and falls back to showing the raw
+                installation ID - a UUID - instead of a label. */}
+            {instance.javaInstallationId && !assignedJava && (
+              <SelectItem value={instance.javaInstallationId} disabled>
+                Unknown Java installation (not detected)
+              </SelectItem>
+            )}
             {installations.map((java) => {
               const major = parseJavaMajor(java.version);
               const recommended = requiredJava !== null && major === requiredJava;
               return (
-                <SelectItem key={java.id} value={java.id}>
-                  Java {java.version} ({java.architecture})
-                  {recommended ? " · Recommended" : ""}
+                <SelectItem key={java.id} value={java.id} title={java.path}>
+                  <span className="min-w-0 flex-1 truncate">
+                    Java {java.version} ({java.architecture})
+                  </span>
+                  {recommended && (
+                    <span className="shrink-0 rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+                      Recommended
+                    </span>
+                  )}
                 </SelectItem>
               );
             })}
@@ -316,23 +346,24 @@ export function InstanceCard({ instance }: { instance: Instance }) {
         )}
       </div>
 
-      <div className="flex gap-2">
-        <Button
-          variant="outline"
-          size="sm"
-          className="flex-1"
-          onClick={() => navigate(`/instances/${instance.id}/console`)}
-        >
-          Console
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          className="flex-1"
-          onClick={() => navigate(`/instances/${instance.id}`)}
-        >
-          Manage
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            className="flex-1"
+            onClick={() => navigate(`/instances/${instance.id}/console`)}
+          >
+            Console
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="flex-1"
+            onClick={() => navigate(`/instances/${instance.id}`)}
+          >
+            Manage
+          </Button>
+        </div>
       </div>
 
       <Dialog

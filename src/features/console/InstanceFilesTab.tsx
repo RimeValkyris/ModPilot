@@ -14,7 +14,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { api } from "@/lib/tauri";
-import { formatMemoryMb } from "@/lib/format";
+import { formatFileSize } from "@/lib/format";
 import type { Instance } from "@/types/instance";
 import type { WorldBackup } from "@/types/backup";
 
@@ -142,7 +142,7 @@ export function InstanceFilesTab({ instance }: { instance: Instance }) {
                 <div>
                   <p className="font-medium">{backup.name}</p>
                   <p className="text-xs text-muted-foreground">
-                    {formatMemoryMb(backup.sizeBytes / (1024 * 1024))} ·{" "}
+                    {formatFileSize(backup.sizeBytes)} ·{" "}
                     {new Date(backup.createdAt).toLocaleString()}
                   </p>
                 </div>

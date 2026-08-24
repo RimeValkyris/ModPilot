@@ -27,9 +27,12 @@ pub async fn list_java_installations(state: State<'_, AppState>) -> Result<Vec<J
 /// (keyed by executable path) into the database, then returns the full,
 /// refreshed list.
 ///
-/// No installations are ever removed here, even if not found this time -
+/// A "not found this time" installation is otherwise never removed here -
 /// a Java install on a removable/network drive shouldn't silently vanish
-/// from an instance's settings just because it wasn't mounted during a scan.
+/// from an instance's settings just because it wasn't mounted during a
+/// scan. `prune_stale_installations` below is the one exception: it clears
+/// out rows that are provably never coming back, not just "not found
+/// right now".
 #[tauri::command]
 pub async fn detect_java_installations(state: State<'_, AppState>) -> Result<Vec<JavaInstallation>, String> {
     let found = tauri::async_runtime::spawn_blocking(java::detect_java_installations)
@@ -57,7 +60,38 @@ pub async fn detect_java_installations(state: State<'_, AppState>) -> Result<Vec
         .map_err(|e| format!("Failed to save detected Java installation: {e}"))?;
     }
 
+    prune_stale_installations(&state).await?;
+
     list_java_installations(state).await
+}
+
+/// Removes DB rows for Java installations that are provably invalid: the
+/// path no longer points to a real file, or it's an Oracle `javapath`
+/// redirector (see `is_oracle_path_redirector`) - a hard-linked duplicate
+/// of a real install, not a distinct one. Both can only ever be leftovers
+/// from before this filter existed, or from an actual uninstall, so unlike
+/// a removable drive just not being mounted right now, these are never
+/// coming back - it's safe to clear them automatically instead of making
+/// every affected user find Settings -> Danger Zone -> "Forget all Java
+/// installations" themselves.
+async fn prune_stale_installations(state: &State<'_, AppState>) -> Result<(), String> {
+    let rows: Vec<(String, String)> = sqlx::query_as("SELECT id, path FROM java_installations")
+        .fetch_all(&state.db)
+        .await
+        .map_err(|e| format!("Failed to read Java installations: {e}"))?;
+
+    for (id, path) in rows {
+        let is_stale = java::is_oracle_path_redirector(std::path::Path::new(&path))
+            || !std::path::Path::new(&path).is_file();
+        if is_stale {
+            sqlx::query("DELETE FROM java_installations WHERE id = ?")
+                .bind(&id)
+                .execute(&state.db)
+                .await
+                .map_err(|e| format!("Failed to remove stale Java installation: {e}"))?;
+        }
+    }
+    Ok(())
 }
 
 /// Marks one Java installation as the default ModpackPilot suggests for new

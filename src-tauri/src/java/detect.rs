@@ -143,7 +143,7 @@ fn parse_vendor(text: &str) -> Option<String> {
 /// path for `canonicalize()` to resolve them back to, so without this
 /// filter every Oracle JDK shows up twice: once through this redirector,
 /// once through its real install folder under `Program Files\Java`.
-fn is_oracle_path_redirector(path: &Path) -> bool {
+pub(crate) fn is_oracle_path_redirector(path: &Path) -> bool {
     path.components().any(|c| {
         c.as_os_str()
             .to_str()

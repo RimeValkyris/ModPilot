@@ -140,7 +140,7 @@ export function Console({ instance }: { instance: Instance }) {
       <div
         ref={scrollRef}
         onScroll={handleScroll}
-        className={`flex-1 overflow-y-auto rounded-lg border border-border bg-black/95 p-3 font-mono leading-relaxed ${FONT_SIZE_CLASS[fontSize] ?? "text-xs"}`}
+        className={`console-scrollbar flex-1 overflow-x-auto overflow-y-auto rounded-lg border border-border bg-black/95 p-3 font-mono leading-relaxed ${FONT_SIZE_CLASS[fontSize] ?? "text-xs"}`}
       >
         {lines.length === 0 ? (
           <p className="text-zinc-500">No output yet.</p>

@@ -5,6 +5,8 @@ use std::path::{Path, PathBuf};
 use zip::write::SimpleFileOptions;
 use zip::{ZipArchive, ZipWriter};
 
+use super::detect::detect_wrapper_folder;
+
 /// Resolves a ZIP entry's internal path to a safe path under `dest_root`,
 /// or `None` if the entry tries to escape it - the "zip slip" attack, where
 /// a crafted `../../etc/whatever` entry name writes outside the intended
@@ -41,16 +43,36 @@ pub fn extract_zip_safely(zip_path: &Path, dest_root: &Path) -> std::io::Result<
     let mut archive =
         ZipArchive::new(file).map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
 
+    // Detect a shared wrapping folder (see `detect_wrapper_folder`) up front
+    // from the file entries alone, so it can be stripped as everything is
+    // written - the extracted layout needs to match what `detect_from_zip`
+    // already showed the user during review.
+    let file_names: Vec<String> = (0..archive.len())
+        .filter_map(|i| {
+            let entry = archive.by_index(i).ok()?;
+            (!entry.is_dir()).then(|| entry.name().replace('\\', "/"))
+        })
+        .collect();
+    let wrapper_prefix = detect_wrapper_folder(&file_names).map(|w| format!("{w}/"));
+
     let mut warnings = Vec::new();
 
     for i in 0..archive.len() {
         let mut entry = archive
             .by_index(i)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-        let name = entry.name().to_string();
+        let raw_name = entry.name().to_string();
+        let normalized = raw_name.replace('\\', "/");
+        let name = match &wrapper_prefix {
+            Some(prefix) => normalized.strip_prefix(prefix.as_str()).unwrap_or(&normalized),
+            None => &normalized,
+        };
+        if name.is_empty() {
+            continue; // the wrapper folder's own directory entry
+        }
 
-        let Some(out_path) = safe_join(dest_root, &name) else {
-            warnings.push(format!("Skipped unsafe archive entry: {name}"));
+        let Some(out_path) = safe_join(dest_root, name) else {
+            warnings.push(format!("Skipped unsafe archive entry: {raw_name}"));
             continue;
         };
 
@@ -107,13 +129,40 @@ pub fn create_zip_from_dir(src_dir: &Path, dest_zip: &Path) -> std::io::Result<(
 /// Symlinks are skipped deliberately: following one could copy files from
 /// outside the folder the user actually picked.
 pub fn copy_dir_recursive(src_root: &Path, dest_root: &Path) -> std::io::Result<()> {
+    // Same wrapping-folder check as the ZIP path (see `detect_wrapper_folder`)
+    // - e.g. the user picked a folder that's itself just an extracted
+    // archive still wrapped in a directory matching the pack's name.
+    let file_names: Vec<String> = walkdir::WalkDir::new(src_root)
+        .into_iter()
+        .filter_map(Result::ok)
+        .filter(|e| e.file_type().is_file())
+        .filter_map(|e| {
+            e.path()
+                .strip_prefix(src_root)
+                .ok()
+                .map(|p| p.to_string_lossy().replace('\\', "/"))
+        })
+        .collect();
+    let wrapper_prefix = detect_wrapper_folder(&file_names).map(|w| format!("{w}/"));
+
     for entry in walkdir::WalkDir::new(src_root) {
         let entry = entry.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
         let rel = entry
             .path()
             .strip_prefix(src_root)
-            .expect("walkdir entries are always under src_root");
-        let out_path = dest_root.join(rel);
+            .expect("walkdir entries are always under src_root")
+            .to_string_lossy()
+            .replace('\\', "/");
+        let rel = match &wrapper_prefix {
+            Some(prefix) => rel.strip_prefix(prefix.as_str()).unwrap_or(&rel).to_string(),
+            None => rel,
+        };
+        if rel.is_empty() {
+            continue; // src_root itself, or the wrapper folder's own entry
+        }
+
+        let mut out_path = dest_root.to_path_buf();
+        out_path.extend(rel.split('/'));
 
         if entry.file_type().is_dir() {
             std::fs::create_dir_all(&out_path)?;

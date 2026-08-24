@@ -193,7 +193,7 @@ export function Dashboard() {
             <ArrowRight className="size-3" />
           </Link>
         </div>
-        <ul className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <ul className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
           {recent.map((instance) => (
             <InstanceCard key={instance.id} instance={instance} />
           ))}

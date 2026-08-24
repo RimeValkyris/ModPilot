@@ -4,6 +4,11 @@ A native desktop launcher and manager for Minecraft modpack servers. Import
 existing server files or create one from scratch, then configure, launch,
 monitor, and manage it — no browser tab, no hosted backend, no Docker.
 
+Built as a hobby project and shared as open source in the hope it's useful
+to other people who host modpack servers for their friends. Bug reports,
+feature ideas, and pull requests are all genuinely welcome — see
+[Contributing](#contributing) below. 👋
+
 <!-- Tech stack -->
 ![Tauri](https://img.shields.io/badge/Tauri-2-24C8DB?logo=tauri&logoColor=white)
 ![Rust](https://img.shields.io/badge/Rust-000000?logo=rust&logoColor=white)
@@ -17,7 +22,8 @@ monitor, and manage it — no browser tab, no hosted backend, no Docker.
 ![SQLx](https://img.shields.io/badge/SQLx-async-blue)
 ![Tokio](https://img.shields.io/badge/Tokio-async_runtime-orange)
 ![Platform](https://img.shields.io/badge/platform-Windows-0078D6?logo=windows&logoColor=white)
-![License](https://img.shields.io/badge/license-Unlicensed-lightgrey)
+![License](https://img.shields.io/badge/license-MIT-green)
+![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)
 
 ## What it does
 
@@ -147,3 +153,18 @@ backups, mods/whitelist/ops management, resource monitoring, notifications,
 system tray, and app-wide settings (theme, instances location, defaults) are
 implemented. Automatic Java installation, Linux packaging, and auto-updates
 are planned but not yet built.
+
+## Contributing
+
+Contributions of all sizes are welcome — bug reports, feature requests,
+docs fixes, and code. See [CONTRIBUTING.md](CONTRIBUTING.md) for how to get
+set up and the conventions this codebase follows, and
+[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) for how we treat each other here.
+
+If you're not sure where to start, check the open issues, or open a new
+one describing what you'd like to work on — happy to talk through the
+approach before you dive in.
+
+## License
+
+[MIT](LICENSE) — do what you like with it, just keep the copyright notice.

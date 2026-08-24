@@ -15,7 +15,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { api } from "@/lib/tauri";
-import { formatMemoryMb } from "@/lib/format";
+import { formatFileSize } from "@/lib/format";
 import type { Instance } from "@/types/instance";
 import type { ModInfo } from "@/types/mod";
 
@@ -68,13 +68,23 @@ export function InstanceModsTab({ instance }: { instance: Instance }) {
     }
   }
 
+  const enabledCount = mods.filter((m) => m.enabled).length;
+
   return (
     <div className="flex flex-col gap-3">
-      <p className="text-sm text-muted-foreground">
-        Disabling a mod renames it to <code>.jar.disabled</code> rather than
-        deleting it, so it's easy to turn back on. Changes take effect the
-        next time this instance starts.
-      </p>
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-sm text-muted-foreground">
+          Disabling a mod renames it to <code>.jar.disabled</code> rather than
+          deleting it, so it's easy to turn back on. Changes take effect the
+          next time this instance starts.
+        </p>
+        {!isLoading && mods.length > 0 && (
+          <Badge variant="secondary" className="shrink-0">
+            {mods.length} mod{mods.length === 1 ? "" : "s"}
+            {enabledCount !== mods.length ? ` · ${enabledCount} enabled` : ""}
+          </Badge>
+        )}
+      </div>
 
       {isLoading ? (
         <p className="rounded-xl border border-border bg-card p-4 text-sm text-muted-foreground">
@@ -100,7 +110,7 @@ export function InstanceModsTab({ instance }: { instance: Instance }) {
               </div>
               <div className="flex shrink-0 items-center gap-3">
                 <span className="text-xs text-muted-foreground">
-                  {formatMemoryMb(mod.sizeBytes / (1024 * 1024))}
+                  {formatFileSize(mod.sizeBytes)}
                 </span>
                 <Button variant="ghost" size="icon-sm" onClick={() => setPendingDelete(mod)}>
                   <Trash2 />

@@ -1,17 +1,13 @@
+import defaultAvatar from "@/assets/default-server-avatar.jpg";
 import { cn } from "@/lib/utils";
 
 /**
- * Default server icon shown before a custom profile picture is set - a 2x2
- * checkered grid, matching the "unknown server" placeholder Minecraft's own
- * multiplayer list shows for servers without a `server-icon.png`.
+ * Default server icon shown before a custom profile picture is set.
+ * Bundled as a real asset (not a data URI) so it's cached like any other
+ * image instead of being re-embedded into every page load.
  */
 export function ServerAvatarPlaceholder({ className }: { className?: string }) {
   return (
-    <div className={cn("grid grid-cols-2 grid-rows-2 overflow-hidden", className)}>
-      <div className="bg-muted" />
-      <div className="bg-muted-foreground/20" />
-      <div className="bg-muted-foreground/20" />
-      <div className="bg-muted" />
-    </div>
+    <img src={defaultAvatar} alt="" className={cn("object-cover", className)} />
   );
 }
