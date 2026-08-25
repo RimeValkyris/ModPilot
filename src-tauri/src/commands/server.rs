@@ -9,7 +9,7 @@ use uuid::Uuid;
 
 use super::instance::fetch_instance;
 use crate::importer;
-use crate::models::{Instance, ServerStatus};
+use crate::models::{Instance, ServerLoader, ServerStatus};
 use crate::server::{self, RunningProcess};
 use crate::AppState;
 
@@ -50,6 +50,10 @@ pub async fn start_instance(app: AppHandle, state: State<'_, AppState>, id: Stri
     }
 
     ensure_eula_accepted(&working_dir).await?;
+
+    if matches!(instance.loader, ServerLoader::Forge | ServerLoader::NeoForge) {
+        disable_forge_update_checker(&working_dir).await;
+    }
 
     let java_path = resolve_java_path(&state, instance.java_installation_id.as_deref()).await?;
 
@@ -300,6 +304,58 @@ pub async fn install_forge_server(state: State<'_, AppState>, id: String) -> Res
     fetch_instance(&state, &id)
         .await?
         .ok_or_else(|| "Instance not found".to_string())
+}
+
+/// Proactively disables Forge/NeoForge's built-in update checker before
+/// the server ever boots. `enableUpdateChecker` is what lets a mod's
+/// update-check HTTP call run at startup at all - if that connection gets
+/// silently dropped instead of refused (no connect-timeout is set by these
+/// checkers, so this isn't rare on a network with an overzealous firewall
+/// or filtered DNS), the whole server hangs forever on it. This is applied
+/// on every start, not just the first - an operator who wants update
+/// checks back on can still flip it in the config themselves, but a config
+/// this hasn't been generated yet gets the safe default instead of hitting
+/// the same hang the very first time.
+///
+/// Best-effort: patches both `forge-common.toml` and `neoforge-common.toml`
+/// regardless of which loader this is (the one that doesn't apply is just
+/// never read by the actual loader) and never fails the start over it - a
+/// config it can't touch just means the loader's own default applies.
+async fn disable_forge_update_checker(working_dir: &Path) {
+    for filename in ["forge-common.toml", "neoforge-common.toml"] {
+        let path = working_dir.join("config").join(filename);
+        if let Err(e) = patch_update_checker_toggle(&path).await {
+            tracing::warn!("Failed to disable update checker in {}: {e}", path.display());
+        }
+    }
+}
+
+async fn patch_update_checker_toggle(path: &Path) -> std::io::Result<()> {
+    match tokio::fs::read_to_string(path).await {
+        Ok(contents) => {
+            let re = regex::Regex::new(r"(?im)^\s*enableUpdateChecker\s*=.*$").unwrap();
+            let patched = if re.is_match(&contents) {
+                re.replace(&contents, "enableUpdateChecker = false").into_owned()
+            } else {
+                // Key not present (the file exists but was only partially
+                // generated) - TOML allows re-opening a table, so it's
+                // safe to append a fresh `[general]` block even if one
+                // already exists earlier in the file.
+                format!("{contents}\n[general]\nenableUpdateChecker = false\n")
+            };
+            if patched != contents {
+                tokio::fs::write(path, patched).await?;
+            }
+            Ok(())
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            if let Some(parent) = path.parent() {
+                tokio::fs::create_dir_all(parent).await?;
+            }
+            tokio::fs::write(path, "[general]\nenableUpdateChecker = false\n").await
+        }
+        Err(e) => Err(e),
+    }
 }
 
 /// Writes `eula.txt` with `eula=true` if it isn't already there. Mojang's
