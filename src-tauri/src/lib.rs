@@ -200,6 +200,8 @@ pub fn run() {
             commands::instance_avatar::set_instance_avatar,
             commands::instance_avatar::clear_instance_avatar,
             commands::instance_avatar::read_instance_avatar,
+            commands::instance_avatar::list_avatar_presets,
+            commands::instance_avatar::set_instance_avatar_preset,
             commands::modrinth::search_modrinth_projects,
             commands::modrinth::link_modrinth_project,
             commands::modrinth::unlink_modrinth_project,

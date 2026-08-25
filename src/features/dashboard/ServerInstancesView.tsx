@@ -19,7 +19,7 @@ export function ServerInstancesView({
   const { instances, isLoading, error } = useInstances();
 
   return (
-    <div className="mx-auto flex max-w-5xl flex-col gap-6 p-8">
+    <div className="mx-auto flex max-w-7xl flex-col gap-6 p-8">
       <header>
         <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
         <p className="text-sm text-muted-foreground">{subtitle}</p>
@@ -45,7 +45,7 @@ export function ServerInstancesView({
           </p>
         </div>
       ) : (
-        <ul className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+        <ul className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {instances.map((instance) => (
             <InstanceCard key={instance.id} instance={instance} />
           ))}

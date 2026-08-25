@@ -2,6 +2,7 @@ use std::path::Path;
 
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine;
+use serde::Serialize;
 use tauri::State;
 
 use super::instance::fetch_instance;
@@ -13,6 +14,31 @@ use crate::AppState;
 /// works here since it's just decoration, so it's kept generous.
 const MAX_AVATAR_BYTES: u64 = 8 * 1024 * 1024;
 const ALLOWED_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "webp", "gif"];
+
+/// A built-in profile picture bundled into the binary, offered alongside
+/// "upload your own" so there's a real choice beyond the plain grid-pattern
+/// fallback without needing network access to fetch one.
+struct AvatarPreset {
+    id: &'static str,
+    name: &'static str,
+    ext: &'static str,
+    bytes: &'static [u8],
+}
+
+const PRESETS: &[AvatarPreset] = &[AvatarPreset {
+    id: "uma-cube",
+    name: "Uma Cube",
+    ext: "png",
+    bytes: include_bytes!("../../assets/avatar_presets/uma-cube.png"),
+}];
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AvatarPresetInfo {
+    pub id: String,
+    pub name: String,
+    pub data_uri: String,
+}
 
 fn mime_for_extension(ext: &str) -> &'static str {
     match ext.to_ascii_lowercase().as_str() {
@@ -37,6 +63,20 @@ async fn find_existing_avatar(server_directory: &str) -> Option<std::path::PathB
         }
     }
     None
+}
+
+/// Replaces whatever `avatar.*` an instance currently has (any extension)
+/// with new bytes under the given extension - shared by both an uploaded
+/// image and a built-in preset, so "pick a preset" behaves identically to
+/// "upload a picture" from every other command's point of view.
+async fn write_avatar(server_directory: &str, ext: &str, bytes: &[u8]) -> Result<(), String> {
+    if let Some(old) = find_existing_avatar(server_directory).await {
+        let _ = tokio::fs::remove_file(old).await;
+    }
+    let dest = Path::new(server_directory).join(format!("avatar.{ext}"));
+    tokio::fs::write(&dest, bytes)
+        .await
+        .map_err(|e| format!("Failed to save profile picture: {e}"))
 }
 
 /// Sets the instance's profile picture, shown throughout ModpackPilot's own
@@ -70,16 +110,41 @@ pub async fn set_instance_avatar(
         .await
         .map_err(|e| format!("Failed to read image file: {e}"))?;
 
-    if let Some(old) = find_existing_avatar(&instance.server_directory).await {
-        let _ = tokio::fs::remove_file(old).await;
-    }
+    write_avatar(&instance.server_directory, &ext, &bytes).await
+}
 
-    let dest = Path::new(&instance.server_directory).join(format!("avatar.{ext}"));
-    tokio::fs::write(&dest, bytes)
-        .await
-        .map_err(|e| format!("Failed to save profile picture: {e}"))?;
+/// Lists the built-in profile picture presets, thumbnails included - small
+/// enough (one image today) to just inline as data URIs rather than adding
+/// a second "fetch this preset's bytes" round trip.
+#[tauri::command]
+pub fn list_avatar_presets() -> Vec<AvatarPresetInfo> {
+    PRESETS
+        .iter()
+        .map(|p| AvatarPresetInfo {
+            id: p.id.to_string(),
+            name: p.name.to_string(),
+            data_uri: format!("data:{};base64,{}", mime_for_extension(p.ext), BASE64.encode(p.bytes)),
+        })
+        .collect()
+}
 
-    Ok(())
+/// Sets an instance's profile picture to one of the built-in presets.
+#[tauri::command]
+pub async fn set_instance_avatar_preset(
+    state: State<'_, AppState>,
+    id: String,
+    preset_id: String,
+) -> Result<(), String> {
+    let instance = fetch_instance(&state, &id)
+        .await?
+        .ok_or_else(|| "Instance not found".to_string())?;
+
+    let preset = PRESETS
+        .iter()
+        .find(|p| p.id == preset_id)
+        .ok_or_else(|| "Unknown avatar preset".to_string())?;
+
+    write_avatar(&instance.server_directory, preset.ext, preset.bytes).await
 }
 
 #[tauri::command]

@@ -14,6 +14,7 @@ import type { ResourceUsage } from "@/types/monitor";
 import type { WorldBackup } from "@/types/backup";
 import type { ModInfo } from "@/types/mod";
 import type { ModpackUpdateCheck, ModrinthSearchHit, ModrinthVersion } from "@/types/modrinth";
+import type { AvatarPresetInfo } from "@/types/avatar";
 
 /**
  * Thin wrapper around Tauri's `invoke` calls. Keeping every command call in
@@ -141,6 +142,11 @@ export const api = {
   clearInstanceAvatar: (id: string) => invoke<void>("clear_instance_avatar", { id }),
 
   readInstanceAvatar: (id: string) => invoke<string | null>("read_instance_avatar", { id }),
+
+  listAvatarPresets: () => invoke<AvatarPresetInfo[]>("list_avatar_presets"),
+
+  setInstanceAvatarPreset: (id: string, presetId: string) =>
+    invoke<void>("set_instance_avatar_preset", { id, presetId }),
 
   searchModrinthProjects: (query: string) =>
     invoke<ModrinthSearchHit[]>("search_modrinth_projects", { query }),

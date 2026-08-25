@@ -86,7 +86,7 @@ export function Dashboard() {
 
   if (instances.length === 0) {
     return (
-      <div className="mx-auto flex max-w-5xl flex-col gap-6 p-8">
+      <div className="mx-auto flex max-w-7xl flex-col gap-6 p-8">
         <header>
           <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
           <p className="text-sm text-muted-foreground">
@@ -109,7 +109,7 @@ export function Dashboard() {
   }
 
   return (
-    <div className="mx-auto flex max-w-5xl flex-col gap-6 p-8">
+    <div className="mx-auto flex max-w-7xl flex-col gap-6 p-8">
       <header className="flex items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
@@ -196,7 +196,7 @@ export function Dashboard() {
             <ArrowRight className="size-3" />
           </Link>
         </div>
-        <ul className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+        <ul className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {recent.map((instance) => (
             <InstanceCard key={instance.id} instance={instance} />
           ))}

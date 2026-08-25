@@ -16,6 +16,7 @@ import {
 import { api } from "@/lib/tauri";
 import { ServerAvatarPlaceholder } from "@/components/ServerAvatarPlaceholder";
 import type { Instance } from "@/types/instance";
+import type { AvatarPresetInfo } from "@/types/avatar";
 
 /** Vanilla's own defaults - shown until server.properties exists to read from. */
 const DEFAULTS: Record<string, string> = {
@@ -41,6 +42,7 @@ export function ServerPropertiesForm({ instance }: { instance: Instance }) {
 
   const [avatar, setAvatar] = useState<string | null>(null);
   const [isAvatarBusy, setIsAvatarBusy] = useState(false);
+  const [avatarPresets, setAvatarPresets] = useState<AvatarPresetInfo[]>([]);
 
   useEffect(() => {
     setIsLoading(true);
@@ -57,6 +59,10 @@ export function ServerPropertiesForm({ instance }: { instance: Instance }) {
       .catch((err) => toast.error("Failed to load server settings", { description: String(err) }))
       .finally(() => setIsLoading(false));
   }, [instance.id]);
+
+  useEffect(() => {
+    api.listAvatarPresets().then(setAvatarPresets).catch(() => {});
+  }, []);
 
   function set(key: string, value: string) {
     setValues((prev) => ({ ...prev, [key]: value }));
@@ -141,6 +147,19 @@ export function ServerPropertiesForm({ instance }: { instance: Instance }) {
     }
   }
 
+  async function handlePickAvatarPreset(preset: AvatarPresetInfo) {
+    setIsAvatarBusy(true);
+    try {
+      await api.setInstanceAvatarPreset(instance.id, preset.id);
+      setAvatar(await api.readInstanceAvatar(instance.id));
+      toast.success(`Profile picture set to "${preset.name}"`);
+    } catch (err) {
+      toast.error("Failed to set profile picture", { description: String(err) });
+    } finally {
+      setIsAvatarBusy(false);
+    }
+  }
+
   if (isLoading) {
     return (
       <div className="rounded-xl border border-border bg-card p-4 text-sm text-muted-foreground">
@@ -182,6 +201,25 @@ export function ServerPropertiesForm({ instance }: { instance: Instance }) {
             )}
           </div>
         </div>
+        {avatarPresets.length > 0 && (
+          <div className="flex flex-col gap-1.5">
+            <p className="text-xs text-muted-foreground">Or pick a built-in picture</p>
+            <div className="flex flex-wrap gap-2">
+              {avatarPresets.map((preset) => (
+                <button
+                  key={preset.id}
+                  type="button"
+                  title={preset.name}
+                  disabled={isAvatarBusy}
+                  onClick={() => handlePickAvatarPreset(preset)}
+                  className="size-12 shrink-0 overflow-hidden rounded-lg border border-border transition-colors hover:border-primary disabled:opacity-50"
+                >
+                  <img src={preset.dataUri} alt={preset.name} className="size-full object-cover" />
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
       </section>
 
       <section className="flex flex-col gap-3 rounded-xl border border-border bg-card p-4">
