@@ -109,6 +109,9 @@ pub async fn import_instance(
         auto_restart: false,
         created_at: Utc::now(),
         last_launched_at: None,
+        modrinth_project_id: None,
+        modrinth_project_title: None,
+        modrinth_version_id: None,
     };
 
     if let Err(e) = insert_instance(&state, &instance).await {

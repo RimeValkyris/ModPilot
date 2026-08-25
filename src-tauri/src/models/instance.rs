@@ -99,6 +99,14 @@ pub struct Instance {
     pub auto_restart: bool,
     pub created_at: DateTime<Utc>,
     pub last_launched_at: Option<DateTime<Utc>>,
+    /// Set once an instance is linked to a Modrinth project via "Check for
+    /// Updates" - `None` means it's not linked (e.g. imported from a plain
+    /// ZIP/folder with no update source to check against).
+    pub modrinth_project_id: Option<String>,
+    pub modrinth_project_title: Option<String>,
+    /// The version currently installed, if known. Distinguishes "linked but
+    /// never checked" from "checked and up to date".
+    pub modrinth_version_id: Option<String>,
 }
 
 /// Raw row shape as stored in SQLite. Kept separate from [`Instance`] because
@@ -123,6 +131,9 @@ pub struct InstanceRow {
     pub auto_restart: i64,
     pub created_at: DateTime<Utc>,
     pub last_launched_at: Option<DateTime<Utc>>,
+    pub modrinth_project_id: Option<String>,
+    pub modrinth_project_title: Option<String>,
+    pub modrinth_version_id: Option<String>,
 }
 
 /// Input for creating a new instance manually (Phase 2). The importer
@@ -175,6 +186,9 @@ impl From<InstanceRow> for Instance {
             auto_restart: row.auto_restart != 0,
             created_at: row.created_at,
             last_launched_at: row.last_launched_at,
+            modrinth_project_id: row.modrinth_project_id,
+            modrinth_project_title: row.modrinth_project_title,
+            modrinth_version_id: row.modrinth_version_id,
         }
     }
 }

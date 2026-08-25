@@ -46,6 +46,10 @@ regex = "1"
 walkdir = "2"
 base64 = "0.22"
 sysinfo = "0.32"
+# rustls-tls, not the default native-tls: keeps this pure-Rust instead of
+# needing OpenSSL available at build time, which is one less thing to
+# install on a fresh Windows dev machine.
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 
 # The default release profile leaves real performance on the table for a
 # shipped desktop binary: no LTO, one codegen unit per crate (worse cross-

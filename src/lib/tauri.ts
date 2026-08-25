@@ -13,6 +13,7 @@ import type { JavaInstallation } from "@/types/java";
 import type { ResourceUsage } from "@/types/monitor";
 import type { WorldBackup } from "@/types/backup";
 import type { ModInfo } from "@/types/mod";
+import type { ModpackUpdateCheck, ModrinthSearchHit, ModrinthVersion } from "@/types/modrinth";
 
 /**
  * Thin wrapper around Tauri's `invoke` calls. Keeping every command call in
@@ -138,4 +139,21 @@ export const api = {
   clearInstanceAvatar: (id: string) => invoke<void>("clear_instance_avatar", { id }),
 
   readInstanceAvatar: (id: string) => invoke<string | null>("read_instance_avatar", { id }),
+
+  searchModrinthProjects: (query: string) =>
+    invoke<ModrinthSearchHit[]>("search_modrinth_projects", { query }),
+
+  linkModrinthProject: (id: string, projectId: string) =>
+    invoke<Instance>("link_modrinth_project", { id, projectId }),
+
+  unlinkModrinthProject: (id: string) => invoke<Instance>("unlink_modrinth_project", { id }),
+
+  checkModpackUpdate: (id: string) =>
+    invoke<ModpackUpdateCheck>("check_modpack_update", { id }),
+
+  listModpackVersions: (id: string) =>
+    invoke<ModrinthVersion[]>("list_modpack_versions", { id }),
+
+  applyModpackUpdate: (id: string, versionId: string) =>
+    invoke<Instance>("apply_modpack_update", { id, versionId }),
 };

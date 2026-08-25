@@ -15,7 +15,8 @@ use crate::AppState;
 
 const INSTANCE_COLUMNS: &str = "id, name, minecraft_version, loader, loader_version, java_installation_id,
      min_ram_mb, max_ram_mb, server_directory, server_jar, jvm_args, server_args,
-     status, auto_start, auto_restart, created_at, last_launched_at";
+     status, auto_start, auto_restart, created_at, last_launched_at,
+     modrinth_project_id, modrinth_project_title, modrinth_version_id";
 
 /// Lists every server instance ModpackPilot knows about, newest first.
 #[tauri::command]
@@ -99,6 +100,9 @@ pub async fn create_instance(
         auto_restart: false,
         created_at: Utc::now(),
         last_launched_at: None,
+        modrinth_project_id: None,
+        modrinth_project_title: None,
+        modrinth_version_id: None,
     };
 
     if let Err(e) = insert_instance(&state, &instance).await {
@@ -181,6 +185,12 @@ pub async fn duplicate_instance(
         auto_restart: source.auto_restart,
         created_at: Utc::now(),
         last_launched_at: None,
+        // Carried over deliberately, unlike auto_start above: the clone is
+        // still the same modpack at the same version, so it should still
+        // be checkable/updatable against the same Modrinth project.
+        modrinth_project_id: source.modrinth_project_id.clone(),
+        modrinth_project_title: source.modrinth_project_title.clone(),
+        modrinth_version_id: source.modrinth_version_id.clone(),
     };
 
     if let Err(e) = insert_instance(&state, &instance).await {
@@ -389,8 +399,9 @@ pub(crate) async fn insert_instance(
     sqlx::query(
         "INSERT INTO instances (id, name, minecraft_version, loader, loader_version, java_installation_id,
                                  min_ram_mb, max_ram_mb, server_directory, server_jar, jvm_args, server_args,
-                                 status, auto_start, auto_restart, created_at, last_launched_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                                 status, auto_start, auto_restart, created_at, last_launched_at,
+                                 modrinth_project_id, modrinth_project_title, modrinth_version_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&instance.id)
     .bind(&instance.name)
@@ -409,6 +420,9 @@ pub(crate) async fn insert_instance(
     .bind(instance.auto_restart as i64)
     .bind(instance.created_at)
     .bind(instance.last_launched_at)
+    .bind(&instance.modrinth_project_id)
+    .bind(&instance.modrinth_project_title)
+    .bind(&instance.modrinth_version_id)
     .execute(&state.db)
     .await
     .map_err(|e| format!("Failed to save instance: {e}"))?;

@@ -10,6 +10,7 @@ import { ServerAvatarPlaceholder } from "@/components/ServerAvatarPlaceholder";
 import { Console } from "@/features/console/Console";
 import { InstanceSettingsForm } from "@/features/settings/InstanceSettingsForm";
 import { ServerPropertiesForm } from "@/features/settings/ServerPropertiesForm";
+import { ModpackUpdatesCard } from "@/features/settings/ModpackUpdatesCard";
 import { ResourceUsageRow } from "@/features/dashboard/ResourceUsageRow";
 import { InstanceLogsTab } from "@/features/console/InstanceLogsTab";
 import { InstanceFilesTab } from "@/features/console/InstanceFilesTab";
@@ -159,6 +160,7 @@ export function InstanceDetailPage() {
           <InstancePlayersTab instanceId={instance.id} />
         </TabsContent>
         <TabsContent value="configuration" className="flex flex-col gap-4">
+          <ModpackUpdatesCard instance={instance} />
           <ServerPropertiesForm instance={instance} />
           <InstanceSettingsForm instance={instance} />
         </TabsContent>

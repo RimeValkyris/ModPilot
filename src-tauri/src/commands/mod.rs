@@ -10,6 +10,7 @@ pub mod java;
 pub mod logs;
 pub mod playerlist;
 pub mod mods;
+pub mod modrinth;
 pub mod monitor;
 pub mod server;
 pub mod server_icon;

@@ -47,6 +47,9 @@ Built as a side/hobby or what ever you call this project and shared as open sour
   with restore and delete.
 - **Mods management**: list, enable/disable (renames to `.jar.disabled`
   rather than deleting), and remove mods without touching the filesystem by hand.
+- **Modpack updates**: link an instance to its Modrinth project, then
+  check for and one-click install newer versions - the world, whitelist/ops/bans,
+  and `server.properties` are always left untouched.
 - **Whitelist / operators / banned players**: edit `whitelist.json`,
   `ops.json`, and `banned-players.json` from a form instead of hand-editing JSON.
 - **Resource monitoring**: CPU%, memory, and uptime for each running
@@ -124,6 +127,7 @@ src-tauri/src/             Rust backend
 ├── server/                Process lifecycle, log capture, resource monitor
 ├── importer/              Safe ZIP/folder import + server detection
 ├── java/                  Java installation detection
+├── modrinth/              Modrinth API client + .mrpack update installer
 ├── filesystem/            App-data paths, name sanitization
 ├── database/              SQLite pool + migration runner
 ├── models/                Shared data types

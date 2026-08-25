@@ -37,6 +37,9 @@ export interface Instance {
   autoRestart: boolean;
   createdAt: string;
   lastLaunchedAt: string | null;
+  modrinthProjectId: string | null;
+  modrinthProjectTitle: string | null;
+  modrinthVersionId: string | null;
 }
 
 /** Input for `update_instance_settings` (Configuration tab). */
