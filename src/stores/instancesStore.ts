@@ -12,6 +12,14 @@ interface InstancesState {
   instances: Instance[];
   isLoading: boolean;
   error: string | null;
+  /** Ids currently flagged by the backend's startup watchdog as having
+   * gone quiet for too long while starting - see `instance-stuck-starting`.
+   * Global (not scoped to whichever console tab happens to be open), and
+   * cleared as soon as the instance produces new output or leaves the
+   * "starting" state. */
+  stuckInstanceIds: Set<string>;
+  markInstanceStuck: (id: string) => void;
+  clearInstanceStuck: (id: string) => void;
   fetchInstances: () => Promise<void>;
   createInstance: (request: CreateInstanceRequest) => Promise<Instance>;
   importInstance: (
@@ -38,6 +46,18 @@ export const useInstancesStore = create<InstancesState>((set, get) => ({
   instances: [],
   isLoading: false,
   error: null,
+  stuckInstanceIds: new Set(),
+
+  markInstanceStuck: (id) => {
+    set({ stuckInstanceIds: new Set(get().stuckInstanceIds).add(id) });
+  },
+
+  clearInstanceStuck: (id) => {
+    if (!get().stuckInstanceIds.has(id)) return;
+    const next = new Set(get().stuckInstanceIds);
+    next.delete(id);
+    set({ stuckInstanceIds: next });
+  },
 
   fetchInstances: async () => {
     set({ isLoading: true, error: null });
@@ -124,5 +144,6 @@ export const useInstancesStore = create<InstancesState>((set, get) => ({
     set({
       instances: get().instances.map((i) => (i.id === id ? { ...i, status } : i)),
     });
+    get().clearInstanceStuck(id);
   },
 }));

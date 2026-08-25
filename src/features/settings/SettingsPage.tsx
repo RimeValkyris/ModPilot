@@ -81,7 +81,7 @@ function AppearanceSection() {
 
   return (
     <SettingsSection title="Appearance" description="Theme for the whole app.">
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
         {THEMES.map((t) => (
           <button
             key={t}
@@ -179,6 +179,14 @@ function InstancesLocationSection() {
     if (typeof dir === "string") setChosenDir(dir);
   }
 
+  async function handleUsePortable() {
+    try {
+      setChosenDir(await api.getPortableInstancesDir());
+    } catch (err) {
+      toast.error("Couldn't find ModpackPilot's own folder", { description: String(err) });
+    }
+  }
+
   async function handleSave() {
     if (!chosenDir) return;
     setIsSaving(true);
@@ -207,12 +215,19 @@ function InstancesLocationSection() {
           <FolderOpen />
           Choose Folder
         </Button>
-        {chosenDir && (
-          <>
-            <span className="text-xs text-muted-foreground">→ {chosenDir}</span>
-          </>
-        )}
+        <Button variant="outline" size="sm" onClick={handleUsePortable}>
+          <FolderOpen />
+          Use App's Folder
+        </Button>
       </div>
+      <p className="text-xs text-muted-foreground">
+        "Use App's Folder" keeps instances next to ModpackPilot itself. This only works if
+        the app isn't installed in Program Files - Windows blocks apps from writing there,
+        and ModpackPilot will tell you if that's the case rather than failing later.
+      </p>
+      {chosenDir && (
+        <p className="truncate text-xs text-muted-foreground">→ {chosenDir}</p>
+      )}
       {chosenDir && (
         <div className="flex flex-col gap-2 border-t border-border pt-3">
           <label className="flex items-center gap-2 text-xs text-muted-foreground">

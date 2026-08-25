@@ -9,6 +9,7 @@ use uuid::Uuid;
 
 use super::instance::fetch_instance;
 use crate::importer;
+use crate::java;
 use crate::models::{Instance, ServerLoader, ServerStatus};
 use crate::server::{self, RunningProcess};
 use crate::AppState;
@@ -55,16 +56,35 @@ pub async fn start_instance(app: AppHandle, state: State<'_, AppState>, id: Stri
         disable_forge_update_checker(&working_dir).await;
     }
 
-    let java_path = resolve_java_path(&state, instance.java_installation_id.as_deref()).await?;
+    let java_path = resolve_java_path(
+        &state,
+        instance.java_installation_id.as_deref(),
+        instance.minecraft_version.as_deref(),
+        instance.loader,
+    )
+    .await?;
 
-    let jvm_args = if instance.jvm_args.is_empty() {
+    // Minecraft's server console uses JLine, which tries to negotiate real
+    // terminal capabilities on startup. That works fine attached to a real
+    // console (e.g. running `start.bat` directly by hand) but can hang
+    // indefinitely when stdin/stdout are redirected pipes instead - which
+    // is unavoidable here, since ModpackPilot needs piped I/O to capture
+    // the console into its own UI. This is the same fix every server-
+    // wrapper tool (Multicraft, McMyAdmin, etc.) applies: skip JLine's
+    // terminal detection entirely rather than let it hang trying to probe
+    // a terminal that was never going to be there.
+    const WRAPPER_COMPAT_JVM_ARGS: &[&str] =
+        &["-Djline.terminal=jline.UnsupportedTerminal", "-Dfile.encoding=UTF8"];
+
+    let mut jvm_args: Vec<String> = WRAPPER_COMPAT_JVM_ARGS.iter().map(|s| s.to_string()).collect();
+    jvm_args.extend(if instance.jvm_args.is_empty() {
         vec![
             format!("-Xms{}M", instance.min_ram_mb),
             format!("-Xmx{}M", instance.max_ram_mb),
         ]
     } else {
         instance.jvm_args.clone()
-    };
+    });
     let server_args = if instance.server_args.is_empty() {
         vec!["nogui".to_string()]
     } else {
@@ -246,7 +266,13 @@ pub async fn install_forge_server(state: State<'_, AppState>, id: String) -> Res
         })?
     };
 
-    let java_path = resolve_java_path(&state, instance.java_installation_id.as_deref()).await?;
+    let java_path = resolve_java_path(
+        &state,
+        instance.java_installation_id.as_deref(),
+        instance.minecraft_version.as_deref(),
+        instance.loader,
+    )
+    .await?;
 
     let mut command = tokio::process::Command::new(&java_path);
     command
@@ -381,17 +407,97 @@ async fn ensure_eula_accepted(working_dir: &Path) -> Result<(), String> {
     .map_err(|e| format!("Failed to write eula.txt: {e}"))
 }
 
-async fn resolve_java_path(state: &State<'_, AppState>, java_installation_id: Option<&str>) -> Result<String, String> {
-    let Some(java_id) = java_installation_id else {
-        // No Java explicitly assigned - fall back to whatever "java" resolves
-        // to on PATH, same as running the server from a terminal directly.
-        return Ok("java".to_string());
-    };
+/// Picks the JVM to launch an instance with.
+///
+/// An explicitly-assigned installation always wins - that's the operator's
+/// deliberate choice, and it's respected even if it looks wrong (only
+/// logged). Otherwise this auto-selects a *detected* installation matching
+/// the Java version the instance's Minecraft version actually targets,
+/// rather than falling back to whatever `java` happens to be first on
+/// PATH.
+///
+/// That naive PATH fallback was a real, hard-to-diagnose bug: a machine
+/// with several JDKs installed would silently launch e.g. a Minecraft
+/// 1.20.1 + Forge pack (which targets Java 17) under Java 21, where Forge
+/// 47.x hangs partway through mod loading with no error - while the same
+/// pack's own `start.bat` worked fine because it resolved a different
+/// JVM. Silently picking the wrong JVM and hanging is far worse than
+/// saying plainly which Java is needed, so an unresolvable mismatch is now
+/// a clear error instead of a mystery freeze.
+async fn resolve_java_path(
+    state: &State<'_, AppState>,
+    java_installation_id: Option<&str>,
+    minecraft_version: Option<&str>,
+    loader: ServerLoader,
+) -> Result<String, String> {
+    let required = java::required_java_major(minecraft_version);
 
-    sqlx::query_scalar::<_, String>("SELECT path FROM java_installations WHERE id = ?")
+    if let Some(java_id) = java_installation_id {
+        let row = sqlx::query_as::<_, (String, String)>(
+            "SELECT path, version FROM java_installations WHERE id = ?",
+        )
         .bind(java_id)
         .fetch_optional(&state.db)
         .await
         .map_err(|e| format!("Failed to look up Java installation: {e}"))?
-        .ok_or_else(|| "The Java installation assigned to this instance no longer exists".to_string())
+        .ok_or_else(|| "The Java installation assigned to this instance no longer exists".to_string())?;
+
+        let (path, version) = row;
+        if let (Some(required), Some(actual)) = (required, java::parse_java_major(&version)) {
+            if required != actual {
+                tracing::warn!(
+                    "Instance is explicitly set to Java {actual} but Minecraft {} targets Java {required}; honoring the explicit choice",
+                    minecraft_version.unwrap_or("?"),
+                );
+            }
+        }
+        return Ok(path);
+    }
+
+    // Nothing assigned - try to auto-pick a detected install that matches.
+    let Some(required) = required else {
+        return Ok("java".to_string()); // unknown MC version: nothing better to go on
+    };
+
+    let installations = sqlx::query_as::<_, (String, String)>(
+        "SELECT path, version FROM java_installations",
+    )
+    .fetch_all(&state.db)
+    .await
+    .map_err(|e| format!("Failed to look up Java installations: {e}"))?;
+
+    if let Some((path, _)) = installations
+        .iter()
+        .find(|(_, version)| java::parse_java_major(version) == Some(required))
+    {
+        tracing::info!("Auto-selected Java {required} for Minecraft {}", minecraft_version.unwrap_or("?"));
+        return Ok(path.clone());
+    }
+
+    // No match installed. For Forge/NeoForge specifically, running on the
+    // wrong major is a known hang rather than a graceful failure, so refuse
+    // instead of starting something that will freeze partway through mod
+    // loading.
+    if matches!(loader, ServerLoader::Forge | ServerLoader::NeoForge) {
+        let available = if installations.is_empty() {
+            "none detected".to_string()
+        } else {
+            installations
+                .iter()
+                .filter_map(|(_, v)| java::parse_java_major(v))
+                .map(|m| format!("Java {m}"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        return Err(format!(
+            "This pack is Minecraft {} on {}, which needs Java {required}, but no Java {required} \
+             installation was found (available: {available}). Running it on a different Java \
+             version typically hangs partway through mod loading. Install Java {required}, then \
+             use Java -> Rescan and pick it for this instance.",
+            minecraft_version.unwrap_or("?"),
+            loader.as_str(),
+        ));
+    }
+
+    Ok("java".to_string())
 }

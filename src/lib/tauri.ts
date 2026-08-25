@@ -113,6 +113,8 @@ export const api = {
 
   getInstancesDir: () => invoke<string>("get_instances_dir"),
 
+  getPortableInstancesDir: () => invoke<string>("get_portable_instances_dir"),
+
   setInstancesDir: (newDir: string, moveExisting: boolean) =>
     invoke<void>("set_instances_dir", { newDir, moveExisting }),
 

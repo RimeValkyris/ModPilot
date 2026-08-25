@@ -189,6 +189,7 @@ pub fn run() {
             commands::settings::get_app_setting,
             commands::settings::set_app_setting,
             commands::settings::get_instances_dir,
+            commands::settings::get_portable_instances_dir,
             commands::settings::set_instances_dir,
             commands::settings::quit_app,
             commands::server_icon::set_server_icon,

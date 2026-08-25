@@ -13,5 +13,11 @@ export interface LogLinePayload {
   line: string;
 }
 
+/** Mirrors Rust's `StuckStartingPayload`, emitted as `instance-stuck-starting`. */
+export interface StuckStartingPayload {
+  instanceId: string;
+}
+
 export const STATUS_EVENT = "instance-status-changed";
 export const LOG_EVENT = "instance-log";
+export const STUCK_STARTING_EVENT = "instance-stuck-starting";

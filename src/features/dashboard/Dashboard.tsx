@@ -17,6 +17,7 @@ import { STATUS_DOT } from "@/lib/serverStatus";
 import { CreateInstanceDialog } from "@/features/dashboard/CreateInstanceDialog";
 import { ImportServerDialog } from "@/features/dashboard/ImportServerDialog";
 import { InstanceCard } from "@/features/dashboard/InstanceCard";
+import { ResourceTrends } from "@/features/dashboard/ResourceTrends";
 import type { Instance } from "@/types/instance";
 
 function StatCard({
@@ -181,6 +182,8 @@ export function Dashboard() {
           </ul>
         </section>
       )}
+
+      <ResourceTrends instances={instances} />
 
       <section className="flex flex-col gap-3">
         <div className="flex items-center justify-between">

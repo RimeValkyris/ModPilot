@@ -6,18 +6,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { api } from "@/lib/tauri";
 import { useAppSetting, useBoolAppSetting } from "@/hooks/useAppSetting";
+import { useInstancesStore } from "@/stores/instancesStore";
 import { LOG_EVENT, type LogLinePayload } from "@/types/events";
 import type { Instance } from "@/types/instance";
-
-/** How long a "starting" instance can go without printing a single new
- * console line before it's flagged as possibly stuck. Real mod-heavy
- * packs can legitimately be quiet for a while during CPU-bound init work,
- * but a *network* hang (a mod's update checker stuck on a dead
- * connection, no timeout set) produces total silence with idle CPU for as
- * long as the operator lets it sit - this is long enough to avoid flagging
- * a merely-slow pack, short enough to catch a real hang far before an
- * operator has to notice it themselves after 30 minutes of nothing. */
-const STUCK_STARTING_THRESHOLD_MS = 3 * 60 * 1000;
 
 interface ConsoleLine {
   id: number;
@@ -61,12 +52,16 @@ export function Console({ instance }: { instance: Instance }) {
   const [lines, setLines] = useState<ConsoleLine[]>([]);
   const [command, setCommand] = useState("");
   const [isSending, setIsSending] = useState(false);
-  const [isStuck, setIsStuck] = useState(false);
   const [isForceStoppingStuck, setIsForceStoppingStuck] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickToBottomRef = useRef(true);
   const nextIdRef = useRef(0);
-  const lastActivityAtRef = useRef(Date.now());
+
+  // Driven by the backend's own startup watchdog (`instance-stuck-starting`),
+  // not local UI state - it fires based on the actual child process's real
+  // activity, so it's correct even if this console tab was never open while
+  // the instance was stuck.
+  const isStuck = useInstancesStore((s) => s.stuckInstanceIds.has(instance.id));
 
   const { value: maxLinesSetting } = useAppSetting("console_max_lines", "2000");
   const { value: fontSize } = useAppSetting("console_font_size", "xs");
@@ -74,8 +69,6 @@ export function Console({ instance }: { instance: Instance }) {
   const maxLines = Number(maxLinesSetting) || 2000;
 
   function appendLine(stream: "stdout" | "stderr", text: string) {
-    lastActivityAtRef.current = Date.now();
-    setIsStuck(false);
     setLines((prev) => {
       const next = [...prev, { id: nextIdRef.current++, stream, text }];
       return next.length > maxLines ? next.slice(next.length - maxLines) : next;
@@ -124,26 +117,6 @@ export function Console({ instance }: { instance: Instance }) {
     }
   }, [lines]);
 
-  // Watchdog: a "starting" instance that's gone quiet for too long is
-  // flagged so the operator finds out from ModpackPilot instead of by
-  // staring at a frozen console themselves - this is what would have
-  // caught a mod's hung update-checker call within minutes instead of
-  // after 30 of silence.
-  useEffect(() => {
-    if (instance.status !== "starting") {
-      setIsStuck(false);
-      return;
-    }
-    lastActivityAtRef.current = Date.now();
-    setIsStuck(false);
-
-    const interval = setInterval(() => {
-      setIsStuck(Date.now() - lastActivityAtRef.current > STUCK_STARTING_THRESHOLD_MS);
-    }, 10_000);
-    return () => clearInterval(interval);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [instance.status, instance.id]);
-
   async function handleForceStopStuck() {
     setIsForceStoppingStuck(true);
     try {
@@ -187,9 +160,8 @@ export function Console({ instance }: { instance: Instance }) {
         <div className="flex items-center justify-between gap-3 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3">
           <p className="flex items-center gap-1.5 text-sm text-amber-600 dark:text-amber-400">
             <AlertTriangle className="size-4 shrink-0" />
-            No console output for {Math.floor(STUCK_STARTING_THRESHOLD_MS / 60_000)}+ minutes -
-            this may be stuck (e.g. a mod's update checker hanging on a dead network
-            connection), not just slow.
+            No console output for several minutes - this may be stuck (e.g. a mod's update
+            checker hanging on a dead network connection), not just slow.
           </p>
           <Button
             variant="outline"

@@ -58,6 +58,7 @@ export function InstanceCard({ instance }: { instance: Instance }) {
   // call per card every time the dashboard renders.
   const { renameInstance, duplicateInstance, deleteInstance, setInstanceJava } =
     useInstancesStore();
+  const isStuckStarting = useInstancesStore((s) => s.stuckInstanceIds.has(instance.id));
   const { installations, fetchInstallations } = useJavaStore();
   const [renameOpen, setRenameOpen] = useState(false);
   const [duplicateOpen, setDuplicateOpen] = useState(false);
@@ -171,8 +172,14 @@ export function InstanceCard({ instance }: { instance: Instance }) {
         )}
 
         <div className="absolute inset-x-2 top-2 flex items-start justify-between gap-2">
-          <Badge className={`${STATUS_BADGE_CLASS[instance.status]} shadow-sm backdrop-blur-sm`}>
-            {STATUS_LABEL[instance.status]}
+          <Badge
+            className={`${
+              isStuckStarting
+                ? "border-transparent bg-amber-500/15 text-amber-600 dark:text-amber-400"
+                : STATUS_BADGE_CLASS[instance.status]
+            } shadow-sm backdrop-blur-sm`}
+          >
+            {isStuckStarting ? "POSSIBLY STUCK" : STATUS_LABEL[instance.status]}
           </Badge>
           <DropdownMenu>
             <DropdownMenuTrigger
@@ -195,7 +202,9 @@ export function InstanceCard({ instance }: { instance: Instance }) {
                 <Copy />
                 Duplicate
               </DropdownMenuItem>
-              {(instance.status === "running" || instance.status === "stopping") && (
+              {(instance.status === "running" ||
+                instance.status === "stopping" ||
+                instance.status === "starting") && (
                 <DropdownMenuItem variant="destructive" onClick={() => setForceStopOpen(true)}>
                   <OctagonX />
                   Force Stop
@@ -230,7 +239,20 @@ export function InstanceCard({ instance }: { instance: Instance }) {
           onValueChange={handleJavaChange}
         >
           <SelectTrigger className="w-full" size="sm">
-            <SelectValue placeholder="No Java selected" />
+            {/* Resolved here rather than left to the Select's own lookup:
+                base-ui derives the trigger's text from an `items` registry
+                passed to the root, which we don't provide - without this it
+                falls back to stringifying the raw value, i.e. printing the
+                installation's UUID. */}
+            <SelectValue placeholder="No Java selected">
+              {(value) => {
+                if (!value || value === NO_JAVA_VALUE) return "No Java selected";
+                const java = installations.find((j) => j.id === value);
+                return java
+                  ? `Java ${java.version} (${java.architecture})`
+                  : "Unknown Java installation";
+              }}
+            </SelectValue>
           </SelectTrigger>
           {/* Wider than the trigger and no longer locked to its width
               (`alignItemWithTrigger`/`w-(--anchor-width)` from the shared
@@ -309,8 +331,22 @@ export function InstanceCard({ instance }: { instance: Instance }) {
           </Button>
         )}
         {instance.status === "starting" && (
-          <Button size="sm" className="flex-1" disabled>
-            Starting…
+          <Button
+            variant={isStuckStarting ? "destructive" : "outline"}
+            size="sm"
+            className="flex-1"
+            disabled={isProcessActionPending}
+            title={
+              isStuckStarting
+                ? "No output for several minutes - this instance may be stuck"
+                : "Stop this instance while it's still starting - e.g. if this was the wrong server"
+            }
+            onClick={() =>
+              runProcessAction(() => api.forceStopInstance(instance.id), "Failed to stop instance")
+            }
+          >
+            <OctagonX />
+            {isProcessActionPending ? "Starting…" : isStuckStarting ? "Possibly Stuck - Stop" : "Cancel Start"}
           </Button>
         )}
         {instance.status === "running" && (

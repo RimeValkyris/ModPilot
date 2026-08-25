@@ -1,7 +1,8 @@
 use std::path::PathBuf;
 use std::process::Stdio;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 
 use chrono::Utc;
 use sqlx::SqlitePool;
@@ -12,9 +13,29 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::ChildStdin;
 use tokio::sync::{mpsc, Mutex};
 
-use super::events::{LogLinePayload, StatusChangedPayload, LOG_EVENT, STATUS_EVENT};
+use super::events::{
+    LogLinePayload, StatusChangedPayload, StuckStartingPayload, LOG_EVENT, STATUS_EVENT,
+    STUCK_STARTING_EVENT,
+};
 use crate::models::ServerStatus;
 use crate::AppState;
+
+/// How long a "starting" instance can produce zero stdout/stderr lines
+/// before it's flagged as possibly stuck (see `watch_for_stuck_startup`).
+/// Real mod-heavy packs can legitimately go quiet for a while during
+/// CPU-bound init work, but a genuine hang (e.g. a mod's update-checker
+/// stuck on a dead network connection with no timeout) produces total
+/// silence indefinitely - this is long enough to avoid flagging a merely-
+/// slow pack, short enough to catch a real hang long before an operator
+/// would otherwise notice on their own.
+const STUCK_STARTING_THRESHOLD: Duration = Duration::from_secs(3 * 60);
+
+fn now_millis() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
 
 /// Substring vanilla, Forge, NeoForge, Fabric, and Quilt servers all print
 /// once world loading finishes and the server is ready for players/commands.
@@ -179,6 +200,9 @@ pub async fn spawn_server_process(
             .await?,
     ));
 
+    let last_activity_millis = Arc::new(AtomicU64::new(now_millis()));
+    let reached_running = Arc::new(AtomicBool::new(false));
+
     spawn_log_reader(
         app.clone(),
         db.clone(),
@@ -187,6 +211,8 @@ pub async fn spawn_server_process(
         "stdout",
         latest_log.clone(),
         dated_log.clone(),
+        last_activity_millis.clone(),
+        reached_running.clone(),
     );
     spawn_log_reader(
         app.clone(),
@@ -196,7 +222,10 @@ pub async fn spawn_server_process(
         "stderr",
         latest_log,
         dated_log,
+        last_activity_millis.clone(),
+        reached_running.clone(),
     );
+    watch_for_stuck_startup(app.clone(), db.clone(), instance_id.clone(), last_activity_millis, reached_running);
 
     let (kill_tx, mut kill_rx) = mpsc::channel::<()>(1);
     tokio::spawn(async move {
@@ -336,6 +365,8 @@ fn spawn_log_reader<R>(
     stream_name: &'static str,
     latest_log: Arc<Mutex<File>>,
     dated_log: Arc<Mutex<File>>,
+    last_activity_millis: Arc<AtomicU64>,
+    reached_running: Arc<AtomicBool>,
 ) where
     R: tokio::io::AsyncRead + Unpin + Send + 'static,
 {
@@ -344,6 +375,8 @@ fn spawn_log_reader<R>(
         loop {
             match lines.next_line().await {
                 Ok(Some(line)) => {
+                    last_activity_millis.store(now_millis(), Ordering::Relaxed);
+
                     let entry = format!("[{}] {line}\n", Utc::now().format("%H:%M:%S"));
                     {
                         let mut f = latest_log.lock().await;
@@ -364,6 +397,7 @@ fn spawn_log_reader<R>(
                     );
 
                     if stream_name == "stdout" && line.contains(STARTUP_COMPLETE_MARKER) {
+                        reached_running.store(true, Ordering::Relaxed);
                         set_status(&app, &db, &instance_id, ServerStatus::Running).await;
                     }
                 }
@@ -373,6 +407,68 @@ fn spawn_log_reader<R>(
                     break;
                 }
             }
+        }
+    });
+}
+
+/// Watches a starting instance's own real activity (not local UI state) and
+/// fires a one-time notice - a Tauri event plus a desktop notification - if
+/// it goes quiet for longer than `STUCK_STARTING_THRESHOLD` before ever
+/// reaching "running". Global by construction: it's driven by the actual
+/// child process, so it works regardless of which page (or whether any
+/// page) is open when the hang happens - the gap an earlier, UI-only
+/// version of this check had.
+fn watch_for_stuck_startup(
+    app: AppHandle,
+    db: SqlitePool,
+    instance_id: String,
+    last_activity_millis: Arc<AtomicU64>,
+    reached_running: Arc<AtomicBool>,
+) {
+    tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(Duration::from_secs(15)).await;
+
+            if reached_running.load(Ordering::Relaxed) {
+                return;
+            }
+            if !app.state::<AppState>().processes.is_running(&instance_id).await {
+                return; // stopped/crashed/force-stopped before ever going stuck
+            }
+
+            let elapsed_ms = now_millis().saturating_sub(last_activity_millis.load(Ordering::Relaxed));
+            if elapsed_ms < STUCK_STARTING_THRESHOLD.as_millis() as u64 {
+                continue;
+            }
+
+            let _ = app.emit(STUCK_STARTING_EVENT, StuckStartingPayload { instance_id: instance_id.clone() });
+
+            let notifications_enabled: Option<String> = sqlx::query_scalar(
+                "SELECT value FROM application_settings WHERE key = 'notifications_enabled'",
+            )
+            .fetch_optional(&db)
+            .await
+            .unwrap_or_default();
+            if notifications_enabled.as_deref() != Some("false") {
+                let name: Option<String> = sqlx::query_scalar("SELECT name FROM instances WHERE id = ?")
+                    .bind(&instance_id)
+                    .fetch_optional(&db)
+                    .await
+                    .unwrap_or_default();
+                let name = name.unwrap_or_else(|| "An instance".to_string());
+
+                let _ = app
+                    .notification()
+                    .builder()
+                    .title("ModpackPilot")
+                    .body(format!(
+                        "{name} hasn't produced any output in {}+ minutes and may be stuck starting.",
+                        STUCK_STARTING_THRESHOLD.as_secs() / 60
+                    ))
+                    .show();
+            }
+
+            return; // one notice per start attempt, not a repeat every 15s
         }
     });
 }

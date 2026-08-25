@@ -55,6 +55,24 @@ pub fn get_instances_dir(state: State<'_, AppState>) -> String {
     state.paths.instances_dir.to_string_lossy().to_string()
 }
 
+/// An `instances` folder beside ModpackPilot's own executable - "portable"
+/// mode, keeping server files with the app instead of in the per-user
+/// app-data directory.
+///
+/// Only a suggestion: whether it's actually usable depends on where the app
+/// was installed, which `set_instances_dir`'s writability probe is what
+/// really decides. A default NSIS/MSI install lands in Program Files, which
+/// a standard user can't write to.
+#[tauri::command]
+pub fn get_portable_instances_dir() -> Result<String, String> {
+    let exe = std::env::current_exe()
+        .map_err(|e| format!("Couldn't locate the ModpackPilot executable: {e}"))?;
+    let dir = exe
+        .parent()
+        .ok_or_else(|| "Couldn't determine ModpackPilot's own folder".to_string())?;
+    Ok(dir.join("instances").to_string_lossy().to_string())
+}
+
 /// Records a new instances directory and, if requested, moves everything
 /// already there into it. Takes effect on the next launch - `AppState`'s
 /// paths are fixed for the process lifetime, so this deliberately doesn't
@@ -69,6 +87,23 @@ pub async fn set_instances_dir(
     tokio::fs::create_dir_all(new_path)
         .await
         .map_err(|e| format!("Failed to create directory: {e}"))?;
+
+    // Creating the directory isn't proof it can be written into - a
+    // Program Files subfolder is the common case, and on Windows that can
+    // fail (or get UAC-virtualized elsewhere) only once something actually
+    // writes. Finding that out midway through copying a multi-gigabyte
+    // modpack is far worse than finding out now.
+    let probe = new_path.join(".modpackpilot-write-test");
+    tokio::fs::write(&probe, b"")
+        .await
+        .map_err(|_| {
+            format!(
+                "ModpackPilot can't write to \"{new_dir}\". If that's inside Program Files, \
+                 Windows blocks normal apps from writing there - pick a folder in your user \
+                 directory (Documents, Desktop) instead."
+            )
+        })?;
+    let _ = tokio::fs::remove_file(&probe).await;
 
     if move_existing {
         let old_dir = state.paths.instances_dir.clone();

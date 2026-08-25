@@ -3,7 +3,7 @@ import { api } from "@/lib/tauri";
 import { applyThemeClass, THEMES, type Theme } from "@/types/theme";
 
 const SETTING_KEY = "theme";
-const DEFAULT_THEME: Theme = "dark";
+const DEFAULT_THEME: Theme = "minecraft";
 
 interface ThemeState {
   theme: Theme;

@@ -67,6 +67,11 @@
     --border: oklch(0.91 0.005 260);
     --input: oklch(0.91 0.005 260);
     --ring: oklch(0.6 0.14 155);
+    /* Categorical chart hues, fixed order, never cycled. Validated against
+       the light chart surface (#fff): lightness band, chroma floor, CVD
+       separation, and contrast all pass. --chart-5 is deliberately NOT a
+       categorical slot - at this chroma it reads as gray, and it's reserved
+       as the de-emphasis / "Other" color. */
     --chart-1: oklch(0.6 0.14 155);
     --chart-2: oklch(0.65 0.15 230);
     --chart-3: oklch(0.65 0.18 55);
@@ -102,10 +107,15 @@
     --border: oklch(1 0 0 / 8%);
     --input: oklch(1 0 0 / 12%);
     --ring: oklch(0.72 0.16 155);
-    --chart-1: oklch(0.72 0.16 155);
-    --chart-2: oklch(0.7 0.14 230);
-    --chart-3: oklch(0.75 0.16 55);
-    --chart-4: oklch(0.7 0.18 320);
+    /* Dark-mode chart hues are *selected*, not an automatic lightening of
+       the light set: same four hues, re-stepped into the dark lightness
+       band and re-validated against the dark card surface. (The previous
+       values sat at L 0.70-0.75, outside the 0.48-0.67 band for a dark
+       surface.) --chart-5 stays the de-emphasis gray. */
+    --chart-1: oklch(0.64 0.15 155);
+    --chart-2: oklch(0.56 0.14 230);
+    --chart-3: oklch(0.67 0.16 55);
+    --chart-4: oklch(0.55 0.18 320);
     --chart-5: oklch(0.65 0.01 260);
     --sidebar: oklch(0.13 0.008 260);
     --sidebar-foreground: oklch(0.97 0.002 260);
@@ -147,6 +157,95 @@
     --sidebar-accent-foreground: #f8f8f2;
     --sidebar-border: #44475a;
     --sidebar-ring: #bd93f9;
+}
+
+/* ---------------------------------------------------------------------------
+   Minecraft theme.
+
+   Three things carry the look, in order of how much work they do:
+     1. Blocky geometry  - Minecraft has no rounded corners anywhere.
+     2. Beveled panels   - the game's GUI is flat fills with a hard light
+                           top/left edge and a hard dark bottom/right edge.
+                           No blur, no gradient; two inset box-shadows.
+     3. Earthy palette   - deepslate/stone surfaces, grass-green accent.
+--------------------------------------------------------------------------- */
+.theme-minecraft {
+    --radius: 0rem;
+
+    /* Bevel edges, as literal colors rather than alpha, so stacked panels
+       don't compound into muddy grey. */
+    --mc-bevel-light: oklch(1 0 0 / 14%);
+    --mc-bevel-dark: oklch(0 0 0 / 38%);
+
+    --background: oklch(0.18 0.006 265); /* deepslate */
+    --foreground: oklch(0.95 0.004 100);
+    --card: oklch(0.24 0.007 265); /* stone panel */
+    --card-foreground: oklch(0.95 0.004 100);
+    --popover: oklch(0.24 0.007 265);
+    --popover-foreground: oklch(0.95 0.004 100);
+    --primary: oklch(0.63 0.15 142); /* grass block green */
+    --primary-foreground: oklch(0.15 0.03 142);
+    --secondary: oklch(0.31 0.008 265);
+    --secondary-foreground: oklch(0.95 0.004 100);
+    --muted: oklch(0.29 0.008 265);
+    --muted-foreground: oklch(0.70 0.008 265);
+    --accent: oklch(0.34 0.05 142);
+    --accent-foreground: oklch(0.88 0.09 142);
+    --destructive: oklch(0.58 0.19 27); /* redstone */
+    --border: oklch(0.36 0.008 265);
+    --input: oklch(0.36 0.008 265);
+    --ring: oklch(0.63 0.15 142);
+    --sidebar: oklch(0.15 0.006 265);
+    --sidebar-foreground: oklch(0.95 0.004 100);
+    --sidebar-primary: oklch(0.63 0.15 142);
+    --sidebar-primary-foreground: oklch(0.15 0.03 142);
+    --sidebar-accent: oklch(0.34 0.05 142);
+    --sidebar-accent-foreground: oklch(0.88 0.09 142);
+    --sidebar-border: oklch(0.36 0.008 265);
+    --sidebar-ring: oklch(0.63 0.15 142);
+}
+
+/* Everything is square. Broad on purpose - this is the single rule that
+   does the most work, and it has to beat per-element `rounded-*` utilities
+   scattered across the app (cards, avatars, badges, inputs alike). */
+.theme-minecraft *:not(svg):not(svg *) {
+    border-radius: 0 !important;
+}
+
+/* Raised panel: hard light edge top/left, hard dark edge bottom/right. */
+.theme-minecraft [data-slot="card"],
+.theme-minecraft [data-slot="dialog-content"],
+.theme-minecraft [data-slot="alert-dialog-content"],
+.theme-minecraft [data-slot="select-content"],
+.theme-minecraft [data-slot="dropdown-menu-content"] {
+    box-shadow:
+        inset 2px 2px 0 0 var(--mc-bevel-light),
+        inset -2px -2px 0 0 var(--mc-bevel-dark);
+}
+
+.theme-minecraft [data-slot="button"] {
+    box-shadow:
+        inset 2px 2px 0 0 var(--mc-bevel-light),
+        inset -2px -2px 0 0 var(--mc-bevel-dark);
+}
+
+/* Pressed state inverts the bevel - the button physically sinks, which is
+   how Minecraft's own buttons read. */
+.theme-minecraft [data-slot="button"]:active:not(:disabled) {
+    box-shadow:
+        inset -2px -2px 0 0 var(--mc-bevel-light),
+        inset 2px 2px 0 0 var(--mc-bevel-dark);
+}
+
+/* Inputs and console are *inset* - recessed into the panel, the inverse of
+   a raised button. */
+.theme-minecraft [data-slot="input"],
+.theme-minecraft [data-slot="select-trigger"],
+.theme-minecraft textarea,
+.theme-minecraft .console-scrollbar {
+    box-shadow:
+        inset 2px 2px 0 0 var(--mc-bevel-dark),
+        inset -2px -2px 0 0 var(--mc-bevel-light);
 }
 
 .theme-nord {
