@@ -29,6 +29,7 @@ interface InstancesState {
   linkModrinthProject: (id: string, projectId: string) => Promise<Instance>;
   unlinkModrinthProject: (id: string) => Promise<Instance>;
   applyModpackUpdate: (id: string, versionId: string) => Promise<Instance>;
+  installForgeServer: (id: string) => Promise<Instance>;
   /** Applied from the `instance-status-changed` Tauri event. */
   applyStatusUpdate: (id: string, status: ServerStatus) => void;
 }
@@ -109,6 +110,12 @@ export const useInstancesStore = create<InstancesState>((set, get) => ({
 
   applyModpackUpdate: async (id, versionId) => {
     const updated = await api.applyModpackUpdate(id, versionId);
+    set({ instances: get().instances.map((i) => (i.id === id ? updated : i)) });
+    return updated;
+  },
+
+  installForgeServer: async (id) => {
+    const updated = await api.installForgeServer(id);
     set({ instances: get().instances.map((i) => (i.id === id ? updated : i)) });
     return updated;
   },

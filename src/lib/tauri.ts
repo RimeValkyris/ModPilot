@@ -156,4 +156,6 @@ export const api = {
 
   applyModpackUpdate: (id: string, versionId: string) =>
     invoke<Instance>("apply_modpack_update", { id, versionId }),
+
+  installForgeServer: (id: string) => invoke<Instance>("install_forge_server", { id }),
 };

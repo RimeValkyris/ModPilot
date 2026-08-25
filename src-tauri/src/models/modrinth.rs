@@ -2,8 +2,14 @@ use serde::{Deserialize, Serialize};
 
 /// One result from Modrinth's project search - just enough to let a user
 /// pick the right project when linking an instance to one.
+///
+/// Deserializes from Modrinth's actual API (snake_case: `project_id`,
+/// `icon_url`, ...) and serializes to the frontend as camelCase - a single
+/// blanket `rename_all = "camelCase"` would apply to *both* directions and
+/// silently fail to parse Modrinth's real response (this happened; every
+/// multi-word field came back missing/wrong until this was split).
 #[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all(serialize = "camelCase", deserialize = "snake_case"))]
 pub struct ModrinthSearchHit {
     pub project_id: String,
     pub slug: String,
@@ -19,7 +25,7 @@ pub(crate) struct ModrinthSearchResponse {
 
 /// A Modrinth project (modpack), fetched to validate/confirm a link.
 #[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all(serialize = "camelCase", deserialize = "snake_case"))]
 pub struct ModrinthProject {
     pub id: String,
     pub slug: String,
@@ -36,7 +42,7 @@ pub(crate) struct ModrinthVersionFile {
 
 /// One published version of a Modrinth project.
 #[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all(serialize = "camelCase", deserialize = "snake_case"))]
 pub struct ModrinthVersion {
     pub id: String,
     pub name: String,

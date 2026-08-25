@@ -26,6 +26,10 @@ pub struct DetectedServerInfo {
     pub loader: ServerLoader,
     pub loader_version: Option<String>,
     pub server_jar: Option<String>,
+    /// `true` when `server_jar` is actually the path to a modern
+    /// Forge/NeoForge `@`-argfile rather than a directly-runnable jar -
+    /// see `Instance::launch_mode`.
+    pub server_jar_is_argfile: bool,
     pub has_mods_folder: bool,
     pub mod_count: usize,
     pub has_config_folder: bool,

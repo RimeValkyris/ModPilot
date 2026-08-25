@@ -121,12 +121,25 @@ fn analyze(file_paths: &[String]) -> DetectedServerInfo {
     let mut info = DetectedServerInfo::default();
     let lower_paths: Vec<String> = file_paths.iter().map(|p| p.to_lowercase()).collect();
 
+    // An "-installer.jar" is never itself a runnable server - it's a GUI
+    // wizard that has to be run once (see `commands::forge_install`) to
+    // generate the real server files. Picking it as `server_jar` doesn't
+    // fail loudly: `java -jar` on it just pops up that installer's GUI
+    // every time "Start" is pressed, which looks like the server is
+    // broken rather than simply not installed yet.
     let root_jars: Vec<&str> = file_paths
         .iter()
         .zip(&lower_paths)
-        .filter(|(_, lower)| !lower.contains('/') && lower.ends_with(".jar"))
+        .filter(|(_, lower)| {
+            !lower.contains('/') && lower.ends_with(".jar") && !lower.contains("installer")
+        })
         .map(|(original, _)| original.as_str())
         .collect();
+
+    let installer_jar_present = file_paths
+        .iter()
+        .zip(&lower_paths)
+        .any(|(_, lower)| !lower.contains('/') && lower.ends_with("installer.jar"));
 
     info.has_mods_folder = lower_paths.iter().any(|p| p.starts_with("mods/"));
     info.mod_count = lower_paths
@@ -159,7 +172,23 @@ fn analyze(file_paths: &[String]) -> DetectedServerInfo {
 
     detect_loader_and_version(&lower_paths, &root_jars, &mut info);
 
-    if info.server_jar.is_none() && info.start_scripts.is_empty() {
+    // A modern (1.17+) Forge/NeoForge server, once actually installed,
+    // launches via an argfile instead of a plain jar - takes priority over
+    // whatever `detect_loader_and_version` picked from `root_jars` above,
+    // since an installed server directory can still have a leftover
+    // installer jar sitting alongside the real thing.
+    if let Some(argfile) = find_loader_argfile(file_paths, &lower_paths) {
+        info.server_jar = Some(argfile);
+        info.server_jar_is_argfile = true;
+    }
+
+    if info.server_jar.is_none() && installer_jar_present {
+        info.warnings.push(
+            "This is a Forge/NeoForge installer, not a ready-to-run server yet. Import it, \
+             then use \"Install Forge/NeoForge Server\" on the instance to finish setting it up."
+                .to_string(),
+        );
+    } else if info.server_jar.is_none() && info.start_scripts.is_empty() {
         info.warnings.push(
             "No server JAR or start script detected. You'll need to configure this instance manually.".to_string(),
         );
@@ -217,6 +246,29 @@ fn detect_loader_and_version(
     }
 
     info.server_jar = pick_server_jar(root_jars, info.loader);
+}
+
+/// The platform-specific argfile suffix Forge/NeoForge's installer writes
+/// (`win_args.txt` on Windows, `unix_args.txt` everywhere else) - the same
+/// one `run.bat`/`run.sh` itself invokes.
+#[cfg(windows)]
+const LOADER_ARGFILE_SUFFIX: &str = "win_args.txt";
+#[cfg(not(windows))]
+const LOADER_ARGFILE_SUFFIX: &str = "unix_args.txt";
+
+/// Finds a modern Forge/NeoForge server's `@`-argfile, e.g.
+/// `libraries/net/minecraftforge/forge/1.20.1-47.4.0/win_args.txt` - see
+/// `Instance::launch_mode` for what happens once one is found.
+fn find_loader_argfile(file_paths: &[String], lower_paths: &[String]) -> Option<String> {
+    file_paths
+        .iter()
+        .zip(lower_paths)
+        .find(|(_, lower)| {
+            (lower.starts_with("libraries/net/minecraftforge/forge/")
+                || lower.starts_with("libraries/net/neoforged/neoforge/"))
+                && lower.ends_with(LOADER_ARGFILE_SUFFIX)
+        })
+        .map(|(original, _)| original.clone())
 }
 
 fn find_capture(paths: &[String], re: &Regex, group: usize) -> Option<String> {

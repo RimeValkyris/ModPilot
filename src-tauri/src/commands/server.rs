@@ -8,7 +8,8 @@ use tauri::{AppHandle, State};
 use uuid::Uuid;
 
 use super::instance::fetch_instance;
-use crate::models::ServerStatus;
+use crate::importer;
+use crate::models::{Instance, ServerStatus};
 use crate::server::{self, RunningProcess};
 use crate::AppState;
 
@@ -47,6 +48,8 @@ pub async fn start_instance(app: AppHandle, state: State<'_, AppState>, id: Stri
     if !working_dir.join(&server_jar).is_file() {
         return Err(format!("Server JAR \"{server_jar}\" was not found in the instance's server folder"));
     }
+
+    ensure_eula_accepted(&working_dir).await?;
 
     let java_path = resolve_java_path(&state, instance.java_installation_id.as_deref()).await?;
 
@@ -94,6 +97,7 @@ pub async fn start_instance(app: AppHandle, state: State<'_, AppState>, id: Stri
         java_path,
         jvm_args,
         server_jar,
+        instance.launch_mode.clone(),
         server_args,
         working_dir,
         logs_dir,
@@ -197,6 +201,128 @@ pub async fn send_console_command(state: State<'_, AppState>, id: String, comman
         return Err("Command cannot be empty".to_string());
     }
     state.processes.write_line(&id, command).await
+}
+
+/// Runs a Forge/NeoForge installer jar's headless `--installServer` mode
+/// to turn it into an actual runnable server (`libraries/`, `run.bat`/
+/// `run.sh`, the `@`-argfiles `spawn_server_process` needs), then
+/// re-detects the instance's `server_jar`/`launch_mode` from the result.
+///
+/// Without `--installServer`, running a Forge/NeoForge installer jar just
+/// opens its interactive GUI wizard - which is exactly what silently
+/// happened every time an instance whose `server_jar` pointed at an
+/// installer was started (see `importer::detect`'s installer-jar
+/// exclusion, added alongside this command).
+#[tauri::command]
+pub async fn install_forge_server(state: State<'_, AppState>, id: String) -> Result<Instance, String> {
+    let instance = fetch_instance(&state, &id)
+        .await?
+        .ok_or_else(|| "Instance not found".to_string())?;
+
+    let server_dir = Path::new(&instance.server_directory).join("server");
+
+    let installer_path = {
+        let mut entries = tokio::fs::read_dir(&server_dir)
+            .await
+            .map_err(|e| format!("Failed to read server directory: {e}"))?;
+        let mut found = None;
+        while let Some(entry) = entries
+            .next_entry()
+            .await
+            .map_err(|e| format!("Failed to read server directory: {e}"))?
+        {
+            let name = entry.file_name().to_string_lossy().to_lowercase();
+            if name.ends_with("installer.jar") {
+                found = Some(entry.path());
+                break;
+            }
+        }
+        found.ok_or_else(|| {
+            "No Forge/NeoForge installer jar (*-installer.jar) was found in this instance's server folder".to_string()
+        })?
+    };
+
+    let java_path = resolve_java_path(&state, instance.java_installation_id.as_deref()).await?;
+
+    let mut command = tokio::process::Command::new(&java_path);
+    command
+        .arg("-jar")
+        .arg(&installer_path)
+        .arg("--installServer")
+        .current_dir(&server_dir);
+    #[cfg(windows)]
+    {
+        // CREATE_NO_WINDOW - this runs headless; the installer's own GUI
+        // is exactly what --installServer exists to skip.
+        command.creation_flags(0x0800_0000);
+    }
+
+    let output = command
+        .output()
+        .await
+        .map_err(|e| format!("Failed to run the Forge/NeoForge installer: {e}"))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let tail = if stderr.trim().is_empty() { stdout } else { stderr };
+        return Err(format!(
+            "Forge/NeoForge installer failed (exit code {:?}): {}",
+            output.status.code(),
+            tail.lines().rev().take(5).collect::<Vec<_>>().join(" / "),
+        ));
+    }
+
+    let detected = {
+        let server_dir = server_dir.clone();
+        tauri::async_runtime::spawn_blocking(move || importer::detect_from_dir(&server_dir))
+            .await
+            .map_err(|e| format!("Detection task failed: {e}"))?
+    };
+
+    let Some(server_jar) = detected.server_jar else {
+        return Err(
+            "The installer finished, but ModpackPilot couldn't find the resulting server files. \
+             Check this instance's server folder manually."
+                .to_string(),
+        );
+    };
+    let launch_mode = if detected.server_jar_is_argfile { "argfile" } else { "jar" };
+
+    sqlx::query("UPDATE instances SET server_jar = ?, launch_mode = ? WHERE id = ?")
+        .bind(&server_jar)
+        .bind(launch_mode)
+        .bind(&id)
+        .execute(&state.db)
+        .await
+        .map_err(|e| format!("Installed, but failed to save the result: {e}"))?;
+
+    fetch_instance(&state, &id)
+        .await?
+        .ok_or_else(|| "Instance not found".to_string())
+}
+
+/// Writes `eula.txt` with `eula=true` if it isn't already there. Mojang's
+/// EULA requires an operator to accept it before a server will run at all
+/// - vanilla and every loader just print a message and exit immediately
+/// otherwise. Pressing "Start" in ModpackPilot *is* that acceptance: the
+/// operator explicitly chose to launch this server, the same way typing
+/// `eula=true` into the file by hand would be. Never overwrites an
+/// existing file, so an operator who deliberately set `eula=false` stays
+/// in control.
+async fn ensure_eula_accepted(working_dir: &Path) -> Result<(), String> {
+    let path = working_dir.join("eula.txt");
+    if path.is_file() {
+        return Ok(());
+    }
+    tokio::fs::write(
+        &path,
+        "# Accepted automatically by ModpackPilot when this instance was first started.\n\
+         # https://aka.ms/MinecraftEULA\n\
+         eula=true\n",
+    )
+    .await
+    .map_err(|e| format!("Failed to write eula.txt: {e}"))
 }
 
 async fn resolve_java_path(state: &State<'_, AppState>, java_installation_id: Option<&str>) -> Result<String, String> {

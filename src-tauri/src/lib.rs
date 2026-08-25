@@ -168,6 +168,7 @@ pub fn run() {
             commands::server::restart_instance,
             commands::server::send_console_command,
             commands::server::list_running_instance_ids,
+            commands::server::install_forge_server,
             commands::logs::read_latest_log,
             commands::monitor::get_resource_usage,
             commands::monitor::get_all_resource_usage,

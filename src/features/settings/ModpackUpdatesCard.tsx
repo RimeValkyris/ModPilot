@@ -382,6 +382,37 @@ export function ModpackUpdatesCard({ instance }: { instance: Instance }) {
         </div>
       )}
 
+      {/* Most modpacks aren't on Modrinth at all - CurseForge-only packs,
+          privately-shared packs, or ones a friend just zipped up - so this
+          needs to stay visible and useful even when there's nothing to
+          link to. */}
+      <details className="rounded-lg border border-border p-3 text-sm [&_summary]:cursor-pointer">
+        <summary className="font-medium text-muted-foreground">
+          Modpack isn't on Modrinth? Update it manually
+        </summary>
+        <ol className="mt-2 flex list-decimal flex-col gap-1.5 pl-5 text-xs text-muted-foreground">
+          <li>
+            Stop this instance first - files can get corrupted if they're replaced while the
+            server has them open.
+          </li>
+          <li>
+            Create a World Backup (Files tab) before touching anything, in case the new pack
+            version is incompatible with your saved world.
+          </li>
+          <li>
+            Download the new modpack's server files from wherever you got them originally.
+          </li>
+          <li>
+            Open this instance's <strong>Mods</strong>/<strong>Config</strong> folders (Files
+            tab) and replace the old files with the new ones. Leave{" "}
+            <code>server.properties</code>, <code>whitelist.json</code>, <code>ops.json</code>,{" "}
+            <code>banned-players.json</code>, and the world folder alone - those are your live
+            server's own state, not part of the pack.
+          </li>
+          <li>Start the instance back up and confirm it boots cleanly.</li>
+        </ol>
+      </details>
+
       <LinkProjectDialog instance={instance} open={linkDialogOpen} onOpenChange={setLinkDialogOpen} />
 
       <BrowseVersionsDialog

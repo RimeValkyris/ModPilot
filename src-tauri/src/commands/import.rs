@@ -102,6 +102,7 @@ pub async fn import_instance(
         max_ram_mb,
         server_directory: instance_dir.to_string_lossy().to_string(),
         server_jar: detected.server_jar,
+        launch_mode: if detected.server_jar_is_argfile { "argfile" } else { "jar" }.to_string(),
         jvm_args: Vec::new(),
         server_args: Vec::new(),
         status: ServerStatus::Stopped,

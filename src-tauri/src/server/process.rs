@@ -101,10 +101,19 @@ async fn notify_status(app: &AppHandle, db: &SqlitePool, instance_id: &str, stat
         .show();
 }
 
-/// Launches `java <jvm_args> -jar <server_jar> <server_args>` as a managed
-/// child process in `working_dir`, wires up stdout/stderr capture to both
-/// log files and Tauri events, and spawns the background task that detects
-/// process exit.
+/// Launches the Minecraft server as a managed child process in
+/// `working_dir`, wires up stdout/stderr capture to both log files and
+/// Tauri events, and spawns the background task that detects process exit.
+///
+/// `launch_mode` controls how the command line is built:
+/// - `"jar"` (everything except modern Forge/NeoForge): plain
+///   `java <jvm_args> -jar <server_jar> <server_args>`.
+/// - `"argfile"`: `server_jar` is actually the path to a Forge/NeoForge
+///   `@`-argfile (see `importer::detect::find_loader_argfile`), which
+///   already encodes the real main class - our own `jvm_args` (RAM, etc.)
+///   have to be placed *before* it to still be read as JVM options rather
+///   than program arguments, and *after* `@user_jvm_args.txt` so they take
+///   priority over that file's own defaults.
 ///
 /// The Minecraft process is a plain child process of ModpackPilot - never a
 /// shell command string, so nothing here is vulnerable to shell injection
@@ -118,17 +127,23 @@ pub async fn spawn_server_process(
     java_path: String,
     jvm_args: Vec<String>,
     server_jar: String,
+    launch_mode: String,
     server_args: Vec<String>,
     working_dir: PathBuf,
     logs_dir: PathBuf,
     stop_requested: Arc<AtomicBool>,
 ) -> std::io::Result<SpawnedServer> {
     let mut command = tokio::process::Command::new(&java_path);
+    if launch_mode == "argfile" {
+        command
+            .arg("@user_jvm_args.txt")
+            .args(&jvm_args)
+            .arg(format!("@{server_jar}"))
+            .args(&server_args);
+    } else {
+        command.args(&jvm_args).arg("-jar").arg(&server_jar).args(&server_args);
+    }
     command
-        .args(&jvm_args)
-        .arg("-jar")
-        .arg(&server_jar)
-        .args(&server_args)
         .current_dir(&working_dir)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())

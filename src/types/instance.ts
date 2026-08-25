@@ -30,6 +30,8 @@ export interface Instance {
   maxRamMb: number;
   serverDirectory: string;
   serverJar: string | null;
+  /** "jar" (default) or "argfile" - see Rust's `Instance::launch_mode`. */
+  launchMode: string;
   jvmArgs: string[];
   serverArgs: string[];
   status: ServerStatus;

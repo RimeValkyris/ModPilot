@@ -143,15 +143,23 @@ fn parse_vendor(text: &str) -> Option<String> {
 /// path for `canonicalize()` to resolve them back to, so without this
 /// filter every Oracle JDK shows up twice: once through this redirector,
 /// once through its real install folder under `Program Files\Java`.
+///
+/// The folder name isn't always literally "javapath" - Oracle versions it
+/// per major Java release too (observed in the wild: `java8path_target_*`
+/// for JRE 8, alongside plain `javapath_target_*` for newer JDKs), so this
+/// matches `java<digits?>path(_target...)?` rather than one exact string.
 pub(crate) fn is_oracle_path_redirector(path: &Path) -> bool {
     path.components().any(|c| {
         c.as_os_str()
             .to_str()
-            .map(|s| {
+            .is_some_and(|s| {
                 let lower = s.to_lowercase();
-                lower == "javapath" || lower.starts_with("javapath_target")
+                let Some(rest) = lower.strip_prefix("java") else {
+                    return false;
+                };
+                let rest = rest.trim_start_matches(|c: char| c.is_ascii_digit());
+                rest == "path" || rest.starts_with("path_target")
             })
-            .unwrap_or(false)
     })
 }
 

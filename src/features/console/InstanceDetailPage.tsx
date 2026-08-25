@@ -8,6 +8,7 @@ import { useInstanceAvatar } from "@/hooks/useInstanceAvatar";
 import { STATUS_BADGE_CLASS, STATUS_LABEL } from "@/lib/serverStatus";
 import { ServerAvatarPlaceholder } from "@/components/ServerAvatarPlaceholder";
 import { Console } from "@/features/console/Console";
+import { ForgeInstallBanner } from "@/features/console/ForgeInstallBanner";
 import { InstanceSettingsForm } from "@/features/settings/InstanceSettingsForm";
 import { ServerPropertiesForm } from "@/features/settings/ServerPropertiesForm";
 import { ModpackUpdatesCard } from "@/features/settings/ModpackUpdatesCard";
@@ -97,6 +98,7 @@ export function InstanceDetailPage() {
         </TabsList>
 
         <TabsContent value="overview" className="flex flex-col gap-4">
+          <ForgeInstallBanner instance={instance} />
           {instance.status === "running" && (
             <div className="rounded-xl border border-border bg-card p-4">
               <ResourceUsageRow instance={instance} />

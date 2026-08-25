@@ -92,6 +92,11 @@ pub struct Instance {
     pub max_ram_mb: i64,
     pub server_directory: String,
     pub server_jar: Option<String>,
+    /// How `server_jar` should be launched: `"jar"` runs it directly
+    /// (`java -jar <server_jar>`); `"argfile"` means `server_jar` is
+    /// actually the path to a modern Forge/NeoForge `@`-argfile (see
+    /// `crate::server::spawn_server_process`).
+    pub launch_mode: String,
     pub jvm_args: Vec<String>,
     pub server_args: Vec<String>,
     pub status: ServerStatus,
@@ -124,6 +129,7 @@ pub struct InstanceRow {
     pub max_ram_mb: i64,
     pub server_directory: String,
     pub server_jar: Option<String>,
+    pub launch_mode: String,
     pub jvm_args: String,
     pub server_args: String,
     pub status: String,
@@ -179,6 +185,7 @@ impl From<InstanceRow> for Instance {
             max_ram_mb: row.max_ram_mb,
             server_directory: row.server_directory,
             server_jar: row.server_jar,
+            launch_mode: row.launch_mode,
             jvm_args: serde_json::from_str(&row.jvm_args).unwrap_or_default(),
             server_args: serde_json::from_str(&row.server_args).unwrap_or_default(),
             status: ServerStatus::from(row.status.as_str()),

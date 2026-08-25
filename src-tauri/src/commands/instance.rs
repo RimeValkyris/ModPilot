@@ -14,7 +14,7 @@ use crate::models::{
 use crate::AppState;
 
 const INSTANCE_COLUMNS: &str = "id, name, minecraft_version, loader, loader_version, java_installation_id,
-     min_ram_mb, max_ram_mb, server_directory, server_jar, jvm_args, server_args,
+     min_ram_mb, max_ram_mb, server_directory, server_jar, launch_mode, jvm_args, server_args,
      status, auto_start, auto_restart, created_at, last_launched_at,
      modrinth_project_id, modrinth_project_title, modrinth_version_id";
 
@@ -93,6 +93,7 @@ pub async fn create_instance(
         max_ram_mb,
         server_directory: server_directory.to_string_lossy().to_string(),
         server_jar: None,
+        launch_mode: "jar".to_string(),
         jvm_args,
         server_args: Vec::new(),
         status: ServerStatus::Stopped,
@@ -176,6 +177,7 @@ pub async fn duplicate_instance(
         max_ram_mb: source.max_ram_mb,
         server_directory: new_dir.to_string_lossy().to_string(),
         server_jar: source.server_jar.clone(),
+        launch_mode: source.launch_mode.clone(),
         jvm_args: source.jvm_args.clone(),
         server_args: source.server_args.clone(),
         status: ServerStatus::Stopped,
@@ -285,9 +287,13 @@ pub async fn update_instance_settings(
     let jvm_args = serde_json::to_string(&request.jvm_args).unwrap_or_else(|_| "[]".to_string());
     let server_args = serde_json::to_string(&request.server_args).unwrap_or_else(|_| "[]".to_string());
 
+    // This form only ever offers a `.jar` to pick (see `list_server_jars`),
+    // so a manual edit here always means "launch this as a plain jar" -
+    // even if detection had previously set `launch_mode = 'argfile'` for a
+    // modern Forge/NeoForge install.
     let result = sqlx::query(
         "UPDATE instances
-         SET server_jar = ?, jvm_args = ?, server_args = ?, min_ram_mb = ?, max_ram_mb = ?,
+         SET server_jar = ?, launch_mode = 'jar', jvm_args = ?, server_args = ?, min_ram_mb = ?, max_ram_mb = ?,
              auto_start = ?, auto_restart = ?
          WHERE id = ?",
     )
@@ -398,10 +404,10 @@ pub(crate) async fn insert_instance(
 
     sqlx::query(
         "INSERT INTO instances (id, name, minecraft_version, loader, loader_version, java_installation_id,
-                                 min_ram_mb, max_ram_mb, server_directory, server_jar, jvm_args, server_args,
+                                 min_ram_mb, max_ram_mb, server_directory, server_jar, launch_mode, jvm_args, server_args,
                                  status, auto_start, auto_restart, created_at, last_launched_at,
                                  modrinth_project_id, modrinth_project_title, modrinth_version_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&instance.id)
     .bind(&instance.name)
@@ -413,6 +419,7 @@ pub(crate) async fn insert_instance(
     .bind(instance.max_ram_mb)
     .bind(&instance.server_directory)
     .bind(&instance.server_jar)
+    .bind(&instance.launch_mode)
     .bind(jvm_args)
     .bind(server_args)
     .bind(instance.status.as_str())

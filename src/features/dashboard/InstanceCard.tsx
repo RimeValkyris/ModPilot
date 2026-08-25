@@ -44,6 +44,7 @@ import { ResourceUsageRow } from "@/features/dashboard/ResourceUsageRow";
 import { api } from "@/lib/tauri";
 import { STATUS_BADGE_CLASS, STATUS_LABEL } from "@/lib/serverStatus";
 import { ServerAvatarPlaceholder } from "@/components/ServerAvatarPlaceholder";
+import { needsForgeInstall } from "@/features/console/ForgeInstallBanner";
 import { getRequiredJavaMajor, parseJavaMajor } from "@/lib/javaRequirement";
 import type { Instance } from "@/types/instance";
 
@@ -237,25 +238,36 @@ export function InstanceCard({ instance }: { instance: Instance }) {
               (x64) · Recommended" against the card's narrow trigger width -
               see the truncation below for the same problem's other half). */}
           <SelectContent alignItemWithTrigger={false} className="w-64">
-            <SelectItem value={NO_JAVA_VALUE}>No Java selected</SelectItem>
+            <SelectItem value={NO_JAVA_VALUE} label="No Java selected">
+              No Java selected
+            </SelectItem>
             {/* The assigned installation may no longer be in the detected
                 list (e.g. uninstalled, or cleared via "Forget all Java
                 installations"). Without this, the Select has no item to
                 match the value against and falls back to showing the raw
                 installation ID - a UUID - instead of a label. */}
             {instance.javaInstallationId && !assignedJava && (
-              <SelectItem value={instance.javaInstallationId} disabled>
+              <SelectItem
+                value={instance.javaInstallationId}
+                label="Unknown Java installation"
+                disabled
+              >
                 Unknown Java installation (not detected)
               </SelectItem>
             )}
             {installations.map((java) => {
               const major = parseJavaMajor(java.version);
               const recommended = requiredJava !== null && major === requiredJava;
+              const label = `Java ${java.version} (${java.architecture})`;
               return (
-                <SelectItem key={java.id} value={java.id} title={java.path}>
-                  <span className="min-w-0 flex-1 truncate">
-                    Java {java.version} ({java.architecture})
-                  </span>
+                // `label` is required here, not cosmetic: the popup's items
+                // are portaled and only exist in the DOM once opened, so
+                // without an explicit label the trigger can only *guess*
+                // the selected item's text from that (possibly-never-
+                // mounted) DOM node - and falls back to showing the raw
+                // installation ID (a UUID) when it can't.
+                <SelectItem key={java.id} value={java.id} label={label} title={java.path}>
+                  <span className="min-w-0 flex-1 truncate">{label}</span>
                   {recommended && (
                     <span className="shrink-0 rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] font-medium text-primary">
                       Recommended
@@ -282,7 +294,12 @@ export function InstanceCard({ instance }: { instance: Instance }) {
           <Button
             size="sm"
             className="flex-1"
-            disabled={isProcessActionPending}
+            disabled={isProcessActionPending || needsForgeInstall(instance)}
+            title={
+              needsForgeInstall(instance)
+                ? "This Forge/NeoForge server hasn't been installed yet - see Manage"
+                : undefined
+            }
             onClick={() =>
               runProcessAction(() => api.startInstance(instance.id), "Failed to start instance")
             }
