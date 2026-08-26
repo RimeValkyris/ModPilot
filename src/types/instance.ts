@@ -47,6 +47,8 @@ export interface Instance {
   backupSchedule: string | null;
   /** How many backups a scheduled backup keeps; 0 = keep all. */
   backupKeepLast: number;
+  /** "off" | "notify" | "auto" - how new Modrinth versions are handled. */
+  updatePolicy: string;
 }
 
 /** Input for `update_instance_settings` (Configuration tab). */

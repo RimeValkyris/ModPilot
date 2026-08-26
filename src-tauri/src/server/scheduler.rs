@@ -104,6 +104,10 @@ pub fn spawn(app: AppHandle) {
 async fn tick(app: &AppHandle) -> Result<(), String> {
     let now = Utc::now();
 
+    // Modpack update checks ride the same tick - they are rate-limited
+    // internally, so this is cheap on the cycles where nothing is due.
+    super::autoupdate::tick(app, now).await;
+
     let rows: Vec<(String, Option<String>, Option<String>, i64)> = {
         let state = app.state::<AppState>();
         sqlx::query_as("SELECT id, restart_schedule, backup_schedule, backup_keep_last FROM instances")

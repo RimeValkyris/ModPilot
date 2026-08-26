@@ -139,12 +139,24 @@ pub async fn write_server_properties(
         .await?
         .ok_or_else(|| "Instance not found".to_string())?;
 
-    let path = Path::new(&instance.server_directory)
-        .join("server")
-        .join("server.properties");
+    let server_dir = Path::new(&instance.server_directory).join("server");
+    merge_properties(&server_dir, updates).await
+}
+
+/// Merges `updates` into `<server_dir>/server.properties`, leaving every
+/// other line (comments, ordering, keys this app doesn't know about)
+/// exactly as it was. Creates the file if it doesn't exist yet.
+///
+/// Split out from the command above so the importer can apply defaults to a
+/// freshly-imported pack without routing through the Tauri command layer.
+pub(crate) async fn merge_properties(
+    server_dir: &Path,
+    updates: HashMap<String, String>,
+) -> Result<(), String> {
+    let path = server_dir.join("server.properties");
 
     let existing = tokio::fs::read_to_string(&path).await.unwrap_or_default();
-    let mut remaining = updates.clone();
+    let mut remaining = updates;
     let mut lines: Vec<String> = Vec::new();
 
     for line in existing.lines() {
@@ -167,11 +179,26 @@ pub async fn write_server_properties(
         lines.push(format!("{key}={value}"));
     }
 
+    if let Some(parent) = path.parent() {
+        let _ = tokio::fs::create_dir_all(parent).await;
+    }
     tokio::fs::write(&path, lines.join("\n") + "\n")
         .await
-        .map_err(|e| format!("Failed to write server.properties: {e}"))?;
+        .map_err(|e| format!("Failed to write server.properties: {e}"))
+}
 
-    Ok(())
+/// Settings ModpackPilot forces on a freshly-imported pack.
+///
+/// A lot of distributed server packs ship with the whitelist already on,
+/// which silently locks everyone out on first boot and is confusing to
+/// diagnose. These are applied once, at import - never on every start, so
+/// an operator who deliberately turns the whitelist back on keeps it.
+pub(crate) async fn apply_import_defaults(server_dir: &Path) -> Result<(), String> {
+    let defaults = HashMap::from([
+        ("white-list".to_string(), "false".to_string()),
+        ("difficulty".to_string(), "normal".to_string()),
+    ]);
+    merge_properties(server_dir, defaults).await
 }
 
 #[cfg(test)]

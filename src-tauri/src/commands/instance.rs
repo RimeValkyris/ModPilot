@@ -17,7 +17,7 @@ const INSTANCE_COLUMNS: &str = "id, name, minecraft_version, loader, loader_vers
      min_ram_mb, max_ram_mb, server_directory, server_jar, launch_mode, jvm_args, server_args,
      status, auto_start, auto_restart, created_at, last_launched_at,
      modrinth_project_id, modrinth_project_title, modrinth_version_id,
-     restart_schedule, backup_schedule, backup_keep_last";
+     restart_schedule, backup_schedule, backup_keep_last, update_policy";
 
 /// Lists every server instance ModpackPilot knows about, newest first.
 #[tauri::command]
@@ -108,6 +108,7 @@ pub async fn create_instance(
         restart_schedule: None,
         backup_schedule: None,
         backup_keep_last: 0,
+        update_policy: "off".to_string(),
     };
 
     if let Err(e) = insert_instance(&state, &instance).await {
@@ -200,6 +201,7 @@ pub async fn duplicate_instance(
         restart_schedule: source.restart_schedule.clone(),
         backup_schedule: source.backup_schedule.clone(),
         backup_keep_last: source.backup_keep_last,
+        update_policy: source.update_policy.clone(),
     };
 
     if let Err(e) = insert_instance(&state, &instance).await {
@@ -414,8 +416,8 @@ pub(crate) async fn insert_instance(
                                  min_ram_mb, max_ram_mb, server_directory, server_jar, launch_mode, jvm_args, server_args,
                                  status, auto_start, auto_restart, created_at, last_launched_at,
                                  modrinth_project_id, modrinth_project_title, modrinth_version_id,
-                                 restart_schedule, backup_schedule, backup_keep_last)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                                 restart_schedule, backup_schedule, backup_keep_last, update_policy)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&instance.id)
     .bind(&instance.name)
@@ -441,6 +443,7 @@ pub(crate) async fn insert_instance(
     .bind(&instance.restart_schedule)
     .bind(&instance.backup_schedule)
     .bind(instance.backup_keep_last)
+    .bind(&instance.update_policy)
     .execute(&state.db)
     .await
     .map_err(|e| format!("Failed to save instance: {e}"))?;

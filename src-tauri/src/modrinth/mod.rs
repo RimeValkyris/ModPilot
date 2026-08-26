@@ -7,6 +7,7 @@ use crate::models::{
     ModrinthProject, ModrinthSearchHit, ModrinthSearchResponse, ModrinthVersion,
     ModrinthVersionFile, MrpackIndex,
 };
+use crate::packs::{is_protected_path, join_relative, prune_stale, write_pack_manifest};
 
 const BASE_URL: &str = "https://api.modrinth.com/v2";
 
@@ -151,45 +152,6 @@ async fn download_bytes(url: &str) -> Result<Vec<u8>, String> {
         .map_err(|e| format!("Failed to read downloaded data: {e}"))
 }
 
-/// Paths that belong to the running server, not the modpack, and must
-/// survive an update untouched: the world save, player-list state, and the
-/// operator's own `server.properties`. A `.mrpack`'s `overrides`/
-/// `server-overrides` folders are the pack author's *recommended*
-/// defaults for these, but blindly overwriting a live server's actual
-/// state on every update would silently undo whitelist/op/ban changes and
-/// server.properties tweaks the operator made intentionally.
-fn is_protected_path(relative_path: &str, world_folder_name: &str) -> bool {
-    let normalized = relative_path.replace('\\', "/");
-    normalized == "server.properties"
-        || normalized == "whitelist.json"
-        || normalized == "ops.json"
-        || normalized == "banned-players.json"
-        || normalized == "banned-ips.json"
-        || normalized.starts_with(&format!("{world_folder_name}/"))
-}
-
-/// Name of the manifest ModpackPilot writes at the instance root (a sibling
-/// of `server/`, `instance.json`) recording exactly which relative paths
-/// the last-applied update wrote. This is what makes safe mod cleanup
-/// possible: on the *next* update, anything in the old manifest that isn't
-/// in the new one was written by ModpackPilot itself and is safe to
-/// delete, while anything never recorded here (a mod the operator added by
-/// hand) is never touched, since it was never ModpackPilot's to manage.
-const PACK_MANIFEST_FILE: &str = ".modrinth-pack-files.json";
-
-async fn read_pack_manifest(instance_dir: &Path) -> HashSet<String> {
-    let Ok(contents) = tokio::fs::read_to_string(instance_dir.join(PACK_MANIFEST_FILE)).await else {
-        return HashSet::new();
-    };
-    serde_json::from_str(&contents).unwrap_or_default()
-}
-
-async fn write_pack_manifest(instance_dir: &Path, files: &HashSet<String>) -> Result<(), String> {
-    let json = serde_json::to_string(files).unwrap_or_else(|_| "[]".to_string());
-    tokio::fs::write(instance_dir.join(PACK_MANIFEST_FILE), json)
-        .await
-        .map_err(|e| format!("Update installed, but failed to save its file manifest: {e}"))
-}
 
 /// Downloads and applies a Modrinth version's `.mrpack` to an instance:
 /// every mod listed in `modrinth.index.json` gets downloaded into place,
@@ -285,24 +247,10 @@ pub async fn apply_update(instance_dir: &Path, version: &ModrinthVersion, world_
     // Anything the previous update installed that this one didn't was
     // removed from the pack - clean it up. Best-effort: a failed removal
     // (e.g. the server has the jar open) shouldn't fail the whole update.
-    let previous = read_pack_manifest(instance_dir).await;
-    for stale in previous.difference(&installed) {
-        let path = join_relative(&server_dir, stale);
-        if path.is_file() {
-            let _ = tokio::fs::remove_file(&path).await;
-        }
-    }
+    prune_stale(instance_dir, &server_dir, &installed).await;
 
     write_pack_manifest(instance_dir, &installed).await?;
 
     Ok(())
 }
 
-/// Joins a `/`-separated relative path (as used in `.mrpack` manifests)
-/// onto a base directory a segment at a time, so it behaves correctly on
-/// Windows regardless of the separator baked into the source string.
-fn join_relative(base: &Path, relative: &str) -> std::path::PathBuf {
-    let mut out = base.to_path_buf();
-    out.extend(relative.split('/').filter(|s| !s.is_empty() && *s != "."));
-    out
-}

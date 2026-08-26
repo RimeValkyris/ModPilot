@@ -148,3 +148,42 @@ pub async fn apply_modpack_update(
         .await?
         .ok_or_else(|| "Instance not found".to_string())
 }
+
+/// Sets how this instance handles newly published Modrinth versions:
+/// `"off"`, `"notify"`, or `"auto"` (see `server::autoupdate`).
+#[tauri::command]
+pub async fn set_update_policy(
+    state: State<'_, AppState>,
+    id: String,
+    policy: String,
+) -> Result<Instance, String> {
+    if !matches!(policy.as_str(), "off" | "notify" | "auto") {
+        return Err(format!("Unknown update policy: \"{policy}\""));
+    }
+
+    // "notify"/"auto" are meaningless without something to check against,
+    // and silently accepting them would look like it worked.
+    if policy != "off" {
+        let instance = fetch_instance(&state, &id)
+            .await?
+            .ok_or_else(|| "Instance not found".to_string())?;
+        if instance.modrinth_project_id.is_none() {
+            return Err("Link a Modrinth project first - there's nothing to check for updates against".to_string());
+        }
+    }
+
+    let result = sqlx::query("UPDATE instances SET update_policy = ? WHERE id = ?")
+        .bind(&policy)
+        .bind(&id)
+        .execute(&state.db)
+        .await
+        .map_err(|e| format!("Failed to save update policy: {e}"))?;
+
+    if result.rows_affected() == 0 {
+        return Err("Instance not found".to_string());
+    }
+
+    fetch_instance(&state, &id)
+        .await?
+        .ok_or_else(|| "Instance not found".to_string())
+}

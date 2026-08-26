@@ -118,6 +118,8 @@ pub struct Instance {
     pub backup_schedule: Option<String>,
     /// How many world backups a scheduled backup keeps; 0 keeps all.
     pub backup_keep_last: i64,
+    /// "off" | "notify" | "auto" - see migrations/0007_update_policy.sql.
+    pub update_policy: String,
 }
 
 /// Raw row shape as stored in SQLite. Kept separate from [`Instance`] because
@@ -149,6 +151,7 @@ pub struct InstanceRow {
     pub restart_schedule: Option<String>,
     pub backup_schedule: Option<String>,
     pub backup_keep_last: i64,
+    pub update_policy: String,
 }
 
 /// Input for creating a new instance manually (Phase 2). The importer
@@ -208,6 +211,7 @@ impl From<InstanceRow> for Instance {
             restart_schedule: row.restart_schedule,
             backup_schedule: row.backup_schedule,
             backup_keep_last: row.backup_keep_last,
+            update_policy: row.update_policy,
         }
     }
 }
