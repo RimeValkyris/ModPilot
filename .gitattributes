@@ -1,0 +1,4 @@
+# SQLx checksums every migration file's exact bytes and refuses to start if
+# an already-applied one changes. A CRLF/LF conversion is enough to trip
+# that and hard-crash the app on launch, so migrations are pinned to LF.
+*.sql text eol=lf
