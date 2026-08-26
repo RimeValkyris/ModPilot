@@ -26,6 +26,50 @@ fn is_editable(key: &str) -> bool {
     EDITABLE_KEYS.contains(&key)
 }
 
+/// Minecraft accepts `difficulty` and `gamemode` as either a word or its
+/// numeric alias (server.properties itself, and some server versions/mods,
+/// can write either form) - normalized to the word form on read so the
+/// Configuration tab's dropdowns always have a value they actually know,
+/// instead of falling back to showing the raw number when the file has
+/// e.g. `difficulty=3` instead of `difficulty=hard`. Passed through
+/// unchanged if it's already a word, or some other value entirely.
+fn normalize_editable_value(key: &str, value: &str) -> String {
+    let alias = match (key, value) {
+        ("difficulty", "0") => Some("peaceful"),
+        ("difficulty", "1") => Some("easy"),
+        ("difficulty", "2") => Some("normal"),
+        ("difficulty", "3") => Some("hard"),
+        ("gamemode", "0") => Some("survival"),
+        ("gamemode", "1") => Some("creative"),
+        ("gamemode", "2") => Some("adventure"),
+        ("gamemode", "3") => Some("spectator"),
+        _ => None,
+    };
+    alias.map(str::to_string).unwrap_or_else(|| value.to_string())
+}
+
+/// Rejects a value that would break out of its own `key=value` line.
+///
+/// `server.properties` is line-oriented, so an embedded newline in any
+/// field (a pasted multi-line MOTD is the realistic way this happens)
+/// would silently append whatever follows it as a *separate property* - a
+/// MOTD containing a line break followed by `online-mode=false` would
+/// quietly disable authentication. Trailing line breaks are trimmed rather
+/// than rejected, since a stray newline on the end of a paste is harmless
+/// and annoying to error on; only an interior break is a real problem.
+///
+/// Minecraft has no way to express a literal newline here anyway (it uses
+/// a two-character backslash-n escape), so nothing legitimate is lost.
+fn validate_property_value(key: &str, value: &str) -> Result<String, String> {
+    let trimmed = value.trim_end_matches(['\r', '\n']);
+    if trimmed.contains('\n') || trimmed.contains('\r') {
+        return Err(format!(
+            "\"{key}\" can't contain a line break - server.properties stores one setting per line."
+        ));
+    }
+    Ok(trimmed.to_string())
+}
+
 /// Reads just the editable keys' current values out of `server.properties`.
 /// A key that isn't present in the file yet (e.g. before the server has
 /// ever started once to generate its defaults) is simply absent from the map.
@@ -55,8 +99,9 @@ pub async fn read_server_properties(
             continue;
         }
         if let Some((key, value)) = line.split_once('=') {
-            if is_editable(key.trim()) {
-                values.insert(key.trim().to_string(), value.trim().to_string());
+            let key = key.trim();
+            if is_editable(key) {
+                values.insert(key.to_string(), normalize_editable_value(key, value.trim()));
             }
         }
     }
@@ -78,10 +123,16 @@ pub async fn write_server_properties(
     id: String,
     updates: HashMap<String, String>,
 ) -> Result<(), String> {
+    let mut updates = updates;
     for key in updates.keys() {
         if !is_editable(key) {
             return Err(format!("\"{key}\" is not an editable setting"));
         }
+    }
+    // Validate every value before touching the file, so a bad one fails the
+    // whole write rather than leaving server.properties half-updated.
+    for (key, value) in updates.iter_mut() {
+        *value = validate_property_value(key, value)?;
     }
 
     let instance = fetch_instance(&state, &id)
@@ -121,4 +172,27 @@ pub async fn write_server_properties(
         .map_err(|e| format!("Failed to write server.properties: {e}"))?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn normalizes_numeric_aliases() {
+        assert_eq!(normalize_editable_value("difficulty", "3"), "hard");
+        assert_eq!(normalize_editable_value("gamemode", "0"), "survival");
+        // Already a word, or an unrelated key - passed through untouched.
+        assert_eq!(normalize_editable_value("difficulty", "peaceful"), "peaceful");
+        assert_eq!(normalize_editable_value("max-players", "3"), "3");
+    }
+
+    #[test]
+    fn rejects_line_breaks_that_would_inject_a_property() {
+        assert!(validate_property_value("motd", "Hi\nonline-mode=false").is_err());
+        assert!(validate_property_value("motd", "Hi\ronline-mode=false").is_err());
+        // A trailing newline from a paste is trimmed, not rejected.
+        assert_eq!(validate_property_value("motd", "Hello\n").unwrap(), "Hello");
+        assert_eq!(validate_property_value("motd", "Hello").unwrap(), "Hello");
+    }
 }

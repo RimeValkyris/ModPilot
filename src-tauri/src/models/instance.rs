@@ -112,6 +112,12 @@ pub struct Instance {
     /// The version currently installed, if known. Distinguishes "linked but
     /// never checked" from "checked and up to date".
     pub modrinth_version_id: Option<String>,
+    /// Automation schedules, `None` when disabled. See
+    /// `migrations/0006_scheduling.sql` for the text format.
+    pub restart_schedule: Option<String>,
+    pub backup_schedule: Option<String>,
+    /// How many world backups a scheduled backup keeps; 0 keeps all.
+    pub backup_keep_last: i64,
 }
 
 /// Raw row shape as stored in SQLite. Kept separate from [`Instance`] because
@@ -140,6 +146,9 @@ pub struct InstanceRow {
     pub modrinth_project_id: Option<String>,
     pub modrinth_project_title: Option<String>,
     pub modrinth_version_id: Option<String>,
+    pub restart_schedule: Option<String>,
+    pub backup_schedule: Option<String>,
+    pub backup_keep_last: i64,
 }
 
 /// Input for creating a new instance manually (Phase 2). The importer
@@ -196,6 +205,9 @@ impl From<InstanceRow> for Instance {
             modrinth_project_id: row.modrinth_project_id,
             modrinth_project_title: row.modrinth_project_title,
             modrinth_version_id: row.modrinth_version_id,
+            restart_schedule: row.restart_schedule,
+            backup_schedule: row.backup_schedule,
+            backup_keep_last: row.backup_keep_last,
         }
     }
 }

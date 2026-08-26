@@ -15,6 +15,14 @@ pub const LOG_EVENT: &str = "instance-log";
 /// regardless of which page is open when it happens.
 pub const STUCK_STARTING_EVENT: &str = "instance-stuck-starting";
 
+/// Emitted when a running server's player roster changes (someone joined
+/// or left), so the UI updates live instead of polling.
+pub const PLAYERS_EVENT: &str = "instance-players-changed";
+
+/// Emitted when a running server trips a sustained resource threshold -
+/// see `server::alerts`.
+pub const RESOURCE_ALERT_EVENT: &str = "instance-resource-alert";
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StatusChangedPayload {
@@ -34,4 +42,19 @@ pub struct LogLinePayload {
     pub instance_id: String,
     pub stream: &'static str,
     pub line: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlayersChangedPayload {
+    pub instance_id: String,
+    pub players: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResourceAlertPayload {
+    pub instance_id: String,
+    pub kind: &'static str,
+    pub message: String,
 }

@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { openPath } from "@tauri-apps/plugin-opener";
 import { Archive, Folder, RotateCcw, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -52,8 +51,7 @@ export function InstanceFilesTab({ instance }: { instance: Instance }) {
 
   async function handleOpenFolder(folder: (typeof FOLDERS)[number]["key"]) {
     try {
-      const path = await api.getInstanceSubfolder(instance.id, folder);
-      await openPath(path);
+      await api.openManagedFolder({ instanceSubfolder: { id: instance.id, folder } });
     } catch (err) {
       toast.error(`Failed to open ${folder} folder`, { description: String(err) });
     }

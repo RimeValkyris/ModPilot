@@ -22,7 +22,7 @@ import type { AvatarPresetInfo } from "@/types/avatar";
 const DEFAULTS: Record<string, string> = {
   motd: "A Minecraft Server",
   "max-players": "20",
-  difficulty: "easy",
+  difficulty: "normal",
   gamemode: "survival",
   pvp: "true",
   "online-mode": "true",

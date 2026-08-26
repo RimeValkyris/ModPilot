@@ -1,10 +1,13 @@
 import { useEffect } from "react";
 import { listen } from "@tauri-apps/api/event";
+import { toast } from "sonner";
 import { useInstancesStore } from "@/stores/instancesStore";
 import {
   LOG_EVENT,
+  RESOURCE_ALERT_EVENT,
   STUCK_STARTING_EVENT,
   type LogLinePayload,
+  type ResourceAlertPayload,
   type StuckStartingPayload,
 } from "@/types/events";
 
@@ -37,9 +40,20 @@ export function useStuckStartingEvents() {
       unlistenLog = fn;
     });
 
+    // Sustained resource problems (see Rust's `server::alerts`) surface as
+    // a toast in-app; the backend also raises an OS notification so it is
+    // seen even when ModpackPilot is not focused.
+    let unlistenAlert: (() => void) | undefined;
+    listen<ResourceAlertPayload>(RESOURCE_ALERT_EVENT, (event) => {
+      toast.warning("Resource alert", { description: event.payload.message });
+    }).then((fn) => {
+      unlistenAlert = fn;
+    });
+
     return () => {
       unlistenStuck?.();
       unlistenLog?.();
+      unlistenAlert?.();
     };
   }, [markInstanceStuck, clearInstanceStuck]);
 }

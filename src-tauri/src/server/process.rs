@@ -14,8 +14,8 @@ use tokio::process::ChildStdin;
 use tokio::sync::{mpsc, Mutex};
 
 use super::events::{
-    LogLinePayload, StatusChangedPayload, StuckStartingPayload, LOG_EVENT, STATUS_EVENT,
-    STUCK_STARTING_EVENT,
+    LogLinePayload, PlayersChangedPayload, StatusChangedPayload, StuckStartingPayload, LOG_EVENT,
+    PLAYERS_EVENT, STATUS_EVENT, STUCK_STARTING_EVENT,
 };
 use crate::models::ServerStatus;
 use crate::AppState;
@@ -262,6 +262,9 @@ pub async fn spawn_server_process(
         // refuses to run while an entry for this id still exists, so a
         // crash-triggered auto-restart would otherwise always fail.
         app.state::<AppState>().processes.remove(&instance_id).await;
+        // A stopped server has no players; drop the roster so the UI can't
+        // show a stale one.
+        app.state::<AppState>().players.clear(&instance_id).await;
 
         set_status(&app, &db, &instance_id, final_status).await;
 
@@ -399,6 +402,29 @@ fn spawn_log_reader<R>(
                     if stream_name == "stdout" && line.contains(STARTUP_COMPLETE_MARKER) {
                         reached_running.store(true, Ordering::Relaxed);
                         set_status(&app, &db, &instance_id, ServerStatus::Running).await;
+                    }
+
+                    // Player joins/leaves are announced on stdout; feeding
+                    // the tracker here is free (this loop already has every
+                    // line) versus polling the server with `list`.
+                    if stream_name == "stdout" {
+                        let changed = {
+                            let state = app.state::<AppState>();
+                            state.players.observe(&instance_id, &line).await
+                        };
+                        if changed {
+                            let roster = {
+                                let state = app.state::<AppState>();
+                                state.players.list(&instance_id).await
+                            };
+                            let _ = app.emit(
+                                PLAYERS_EVENT,
+                                PlayersChangedPayload {
+                                    instance_id: instance_id.clone(),
+                                    players: roster,
+                                },
+                            );
+                        }
                     }
                 }
                 Ok(None) => break,

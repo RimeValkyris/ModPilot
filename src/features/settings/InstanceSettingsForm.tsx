@@ -34,6 +34,11 @@ export function InstanceSettingsForm({ instance }: { instance: Instance }) {
   const [serverArgs, setServerArgs] = useState(instance.serverArgs.join("\n"));
   const [minRamMb, setMinRamMb] = useState(String(instance.minRamMb));
   const [maxRamMb, setMaxRamMb] = useState(String(instance.maxRamMb));
+  const [systemMemoryMb, setSystemMemoryMb] = useState<number | null>(null);
+
+  useEffect(() => {
+    api.getSystemMemoryMb().then(setSystemMemoryMb).catch(() => {});
+  }, []);
   const [autoStart, setAutoStart] = useState(instance.autoStart);
   const [autoRestart, setAutoRestart] = useState(instance.autoRestart);
   const [isSaving, setIsSaving] = useState(false);
@@ -101,7 +106,7 @@ export function InstanceSettingsForm({ instance }: { instance: Instance }) {
             id="settings-min-ram"
             type="number"
             min={512}
-            step={512}
+            step={1}
             value={minRamMb}
             onChange={(e) => setMinRamMb(e.target.value)}
           />
@@ -112,12 +117,19 @@ export function InstanceSettingsForm({ instance }: { instance: Instance }) {
             id="settings-max-ram"
             type="number"
             min={512}
-            step={512}
+            step={1}
             value={maxRamMb}
             onChange={(e) => setMaxRamMb(e.target.value)}
           />
         </div>
       </div>
+      {systemMemoryMb !== null && (
+        <p className="text-xs text-muted-foreground">
+          This machine has {(systemMemoryMb / 1024).toFixed(1)} GB ({systemMemoryMb.toLocaleString()}{" "}
+          MB) of RAM installed. Leave enough headroom for the OS and any other running
+          servers - don't allocate all of it to one instance.
+        </p>
+      )}
 
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="settings-jvm-args">

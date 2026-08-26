@@ -19,6 +19,9 @@ pub struct AppState {
     pub processes: server::ProcessManager,
     pub resource_monitor: server::ResourceMonitor,
     pub crash_tracker: server::CrashTracker,
+    pub schedules: server::ScheduleTracker,
+    pub players: server::PlayerTracker,
+    pub alerts: server::AlertTracker,
 }
 
 /// Checks for running servers before actually exiting: if any are running,
@@ -87,6 +90,9 @@ pub fn run() {
                 processes: server::ProcessManager::new(),
                 resource_monitor: server::ResourceMonitor::new(),
                 crash_tracker: server::CrashTracker::new(),
+                schedules: server::ScheduleTracker::new(),
+                players: server::PlayerTracker::new(),
+                alerts: server::AlertTracker::new(),
             });
 
             // Launch any instance marked auto-start, once the window/state
@@ -143,6 +149,10 @@ pub fn run() {
                 });
             }
 
+            // Automated restarts / backups (see `server::scheduler`).
+            server::spawn_scheduler(handle.clone());
+            server::spawn_alerts(handle.clone());
+
             setup_tray(app)?;
 
             Ok(())
@@ -156,6 +166,7 @@ pub fn run() {
             commands::instance::set_instance_java,
             commands::instance::list_server_jars,
             commands::instance::update_instance_settings,
+            commands::instance::set_instance_schedules,
             commands::import::analyze_import,
             commands::import::import_instance,
             commands::java::list_java_installations,
@@ -172,7 +183,10 @@ pub fn run() {
             commands::logs::read_latest_log,
             commands::monitor::get_resource_usage,
             commands::monitor::get_all_resource_usage,
+            commands::monitor::get_system_memory_mb,
+            commands::monitor::list_online_players,
             commands::diagnostics::get_app_logs_dir,
+            commands::diagnostics::open_managed_folder,
             commands::diagnostics::export_app_log,
             commands::diagnostics::get_instance_logs_dir,
             commands::diagnostics::get_instance_subfolder,

@@ -1,7 +1,7 @@
 import { memo, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { listen } from "@tauri-apps/api/event";
-import { AlertTriangle, Send } from "lucide-react";
+import { AlertTriangle, Search, Send, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { api } from "@/lib/tauri";
@@ -53,6 +53,7 @@ export function Console({ instance }: { instance: Instance }) {
   const [command, setCommand] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [isForceStoppingStuck, setIsForceStoppingStuck] = useState(false);
+  const [filter, setFilter] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickToBottomRef = useRef(true);
   const nextIdRef = useRef(0);
@@ -154,6 +155,15 @@ export function Console({ instance }: { instance: Instance }) {
 
   const isRunning = instance.status === "running";
 
+  // Case-insensitive substring match across the whole line, so it works for
+  // a mod name, a log level ("WARN"), or a stack-trace fragment alike -
+  // exactly the "which of these 40,000 lines matters" problem a modded
+  // server's startup creates.
+  const needle = filter.trim().toLowerCase();
+  const visibleLines = needle
+    ? lines.filter((line) => line.text.toLowerCase().includes(needle))
+    : lines;
+
   return (
     <div className="flex h-[calc(100vh-14rem)] flex-col gap-3">
       {isStuck && (
@@ -174,6 +184,27 @@ export function Console({ instance }: { instance: Instance }) {
           </Button>
         </div>
       )}
+      <div className="flex items-center gap-2">
+        <div className="relative flex-1">
+          <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            className="h-8 pl-8 text-xs"
+            placeholder="Filter console (mod name, WARN, error…)"
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+          />
+        </div>
+        {needle && (
+          <>
+            <span className="shrink-0 text-xs text-muted-foreground">
+              {visibleLines.length} / {lines.length}
+            </span>
+            <Button variant="ghost" size="icon-sm" title="Clear filter" onClick={() => setFilter("")}>
+              <X />
+            </Button>
+          </>
+        )}
+      </div>
       <div
         ref={scrollRef}
         onScroll={handleScroll}
@@ -181,8 +212,12 @@ export function Console({ instance }: { instance: Instance }) {
       >
         {lines.length === 0 ? (
           <p className="text-zinc-500">No output yet.</p>
+        ) : visibleLines.length === 0 ? (
+          <p className="text-zinc-500">No lines match "{filter}".</p>
         ) : (
-          lines.map((line) => <ConsoleLineRow key={line.id} line={line} wordWrap={wordWrap} />)
+          visibleLines.map((line) => (
+            <ConsoleLineRow key={line.id} line={line} wordWrap={wordWrap} />
+          ))
         )}
       </div>
       <form onSubmit={handleSubmit} className="flex gap-2">

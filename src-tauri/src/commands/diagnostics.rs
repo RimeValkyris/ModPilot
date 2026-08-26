@@ -3,6 +3,44 @@ use tauri::State;
 use super::instance::fetch_instance;
 use crate::AppState;
 
+/// Which of ModpackPilot's own folders to reveal in the file manager.
+///
+/// Deliberately an enum of known locations rather than a path: the
+/// frontend never gets to name a path to open. Previously the UI fetched a
+/// path and handed it back to the opener plugin, which meant the plugin's
+/// scope had to permit any path on disk (instances can live anywhere the
+/// user relocates them to). Resolving *and* opening entirely in Rust means
+/// only these locations are reachable, so a compromised webview can't turn
+/// "open folder" into "open anything".
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum OpenTarget {
+    AppLogs,
+    InstanceLogs { id: String },
+    InstanceSubfolder { id: String, folder: String },
+}
+
+#[tauri::command]
+pub async fn open_managed_folder(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    target: OpenTarget,
+) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
+
+    let path = match target {
+        OpenTarget::AppLogs => get_app_logs_dir(state),
+        OpenTarget::InstanceLogs { id } => get_instance_logs_dir(state, id).await?,
+        OpenTarget::InstanceSubfolder { id, folder } => {
+            get_instance_subfolder(state, id, folder).await?
+        }
+    };
+
+    app.opener()
+        .open_path(path, None::<&str>)
+        .map_err(|e| format!("Failed to open folder: {e}"))
+}
+
 /// Returns the app-level logs directory, for an "Open Logs Folder" button.
 #[tauri::command]
 pub fn get_app_logs_dir(state: State<'_, AppState>) -> String {

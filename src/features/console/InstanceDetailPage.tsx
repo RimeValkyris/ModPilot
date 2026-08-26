@@ -12,11 +12,13 @@ import { ForgeInstallBanner } from "@/features/console/ForgeInstallBanner";
 import { InstanceSettingsForm } from "@/features/settings/InstanceSettingsForm";
 import { ServerPropertiesForm } from "@/features/settings/ServerPropertiesForm";
 import { ModpackUpdatesCard } from "@/features/settings/ModpackUpdatesCard";
+import { AutomationCard } from "@/features/settings/AutomationCard";
 import { ResourceUsageRow } from "@/features/dashboard/ResourceUsageRow";
 import { InstanceLogsTab } from "@/features/console/InstanceLogsTab";
 import { InstanceFilesTab } from "@/features/console/InstanceFilesTab";
 import { InstanceModsTab } from "@/features/console/InstanceModsTab";
 import { InstancePlayersTab } from "@/features/console/InstancePlayersTab";
+import { OnlinePlayersCard } from "@/features/console/OnlinePlayersCard";
 
 const TABS = [
   "overview",
@@ -158,11 +160,13 @@ export function InstanceDetailPage() {
         <TabsContent value="mods">
           <InstanceModsTab instance={instance} />
         </TabsContent>
-        <TabsContent value="players">
+        <TabsContent value="players" className="flex flex-col gap-4">
+          <OnlinePlayersCard instance={instance} />
           <InstancePlayersTab instanceId={instance.id} />
         </TabsContent>
         <TabsContent value="configuration" className="flex flex-col gap-4">
           <ModpackUpdatesCard instance={instance} />
+          <AutomationCard instance={instance} />
           <ServerPropertiesForm instance={instance} />
           <InstanceSettingsForm instance={instance} />
         </TabsContent>
