@@ -1,8 +1,26 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { AlertTriangle, Download, Link2, List, RefreshCw, Search, Unlink } from "lucide-react";
+import {
+  AlertTriangle,
+  Download,
+  FolderOpen,
+  Link2,
+  List,
+  RefreshCw,
+  Search,
+  Unlink,
+  Upload,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import {
   Dialog,
@@ -21,6 +39,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { useInstancesStore } from "@/stores/instancesStore";
 import { api } from "@/lib/tauri";
 import type { Instance } from "@/types/instance";
@@ -259,7 +278,8 @@ function BrowseVersionsDialog({
 }
 
 export function ModpackUpdatesCard({ instance }: { instance: Instance }) {
-  const { unlinkModrinthProject, applyModpackUpdate } = useInstancesStore();
+  const { unlinkModrinthProject, applyModpackUpdate, setUpdatePolicy, updateInstanceFromSource } =
+    useInstancesStore();
   const [linkDialogOpen, setLinkDialogOpen] = useState(false);
   const [browseOpen, setBrowseOpen] = useState(false);
   const [unlinkOpen, setUnlinkOpen] = useState(false);
@@ -289,6 +309,42 @@ export function ModpackUpdatesCard({ instance }: { instance: Instance }) {
       toast.success("Modrinth project unlinked");
     } catch (err) {
       toast.error("Failed to unlink project", { description: String(err) });
+    }
+  }
+
+  const [isUpdatingFromFile, setIsUpdatingFromFile] = useState(false);
+  const isRunning = instance.status !== "stopped" && instance.status !== "crashed";
+
+  async function handleUpdateFromFile(directory: boolean) {
+    const picked = await openDialog({
+      title: directory ? "Choose the new pack folder" : "Choose the new pack ZIP",
+      multiple: false,
+      directory,
+      filters: directory ? undefined : [{ name: "Server pack", extensions: ["zip"] }],
+    });
+    if (typeof picked !== "string") return;
+
+    setIsUpdatingFromFile(true);
+    try {
+      await updateInstanceFromSource(
+        instance.id,
+        directory ? { kind: "folder", path: picked } : { kind: "zip", path: picked },
+      );
+      toast.success("Pack updated", {
+        description: "A world backup was taken first. Start the server to check it boots cleanly.",
+      });
+    } catch (err) {
+      toast.error("Failed to update from file", { description: String(err) });
+    } finally {
+      setIsUpdatingFromFile(false);
+    }
+  }
+
+  async function handlePolicyChange(policy: string) {
+    try {
+      await setUpdatePolicy(instance.id, policy);
+    } catch (err) {
+      toast.error("Failed to change update policy", { description: String(err) });
     }
   }
 
@@ -346,6 +402,34 @@ export function ModpackUpdatesCard({ instance }: { instance: Instance }) {
             </Button>
           </div>
 
+          <div className="flex flex-col gap-1.5 border-t border-border pt-3">
+            <Label className="text-xs font-medium">When a new version is published</Label>
+            <Select value={instance.updatePolicy} onValueChange={(v) => v && handlePolicyChange(v)}>
+              <SelectTrigger className="w-64" size="sm">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="off" label="Do nothing">
+                  Do nothing
+                </SelectItem>
+                <SelectItem value="notify" label="Notify me">
+                  Notify me
+                </SelectItem>
+                <SelectItem value="auto" label="Install automatically">
+                  Install automatically
+                </SelectItem>
+              </SelectContent>
+            </Select>
+            {instance.updatePolicy === "auto" && (
+              <p className="flex items-start gap-1.5 text-xs text-amber-600 dark:text-amber-400">
+                <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
+                Before installing, the server is stopped and the world is backed up. Updates are
+                skipped while anyone is online, and that safety backup is never auto-deleted by
+                retention. A pack update can still break an existing world - keep an eye on it.
+              </p>
+            )}
+          </div>
+
           {checkResult && !checkResult.hasUpdate && checkResult.latestVersion && (
             <p className="text-sm text-muted-foreground">Up to date.</p>
           )}
@@ -384,34 +468,47 @@ export function ModpackUpdatesCard({ instance }: { instance: Instance }) {
 
       {/* Most modpacks aren't on Modrinth at all - CurseForge-only packs,
           privately-shared packs, or ones a friend just zipped up - so this
-          needs to stay visible and useful even when there's nothing to
-          link to. */}
-      <details className="rounded-lg border border-border p-3 text-sm [&_summary]:cursor-pointer">
-        <summary className="font-medium text-muted-foreground">
-          Modpack isn't on Modrinth? Update it manually
-        </summary>
-        <ol className="mt-2 flex list-decimal flex-col gap-1.5 pl-5 text-xs text-muted-foreground">
-          <li>
-            Stop this instance first - files can get corrupted if they're replaced while the
-            server has them open.
-          </li>
-          <li>
-            Create a World Backup (Files tab) before touching anything, in case the new pack
-            version is incompatible with your saved world.
-          </li>
-          <li>
-            Download the new modpack's server files from wherever you got them originally.
-          </li>
-          <li>
-            Open this instance's <strong>Mods</strong>/<strong>Config</strong> folders (Files
-            tab) and replace the old files with the new ones. Leave{" "}
-            <code>server.properties</code>, <code>whitelist.json</code>, <code>ops.json</code>,{" "}
-            <code>banned-players.json</code>, and the world folder alone - those are your live
-            server's own state, not part of the pack.
-          </li>
-          <li>Start the instance back up and confirm it boots cleanly.</li>
-        </ol>
-      </details>
+          path has to work with nothing linked. */}
+      <div className="flex flex-col gap-2 border-t border-border pt-4">
+        <div>
+          <h3 className="text-sm font-medium">Update from a file</h3>
+          <p className="text-xs text-muted-foreground">
+            For packs that aren't on Modrinth. Point it at the new version's server ZIP or
+            folder and it replaces the pack's files in place - your world, server.properties,
+            and whitelist/ops/bans are left untouched, and files the old version installed
+            but the new one doesn't are cleaned up.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={isUpdatingFromFile || isRunning}
+            onClick={() => handleUpdateFromFile(false)}
+          >
+            <Upload />
+            {isUpdatingFromFile ? "Updating…" : "From ZIP"}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={isUpdatingFromFile || isRunning}
+            onClick={() => handleUpdateFromFile(true)}
+          >
+            <FolderOpen />
+            From Folder
+          </Button>
+        </div>
+        {isRunning ? (
+          <p className="text-xs text-muted-foreground">
+            Stop the server first - swapping mod files under a running server corrupts it.
+          </p>
+        ) : (
+          <p className="text-xs text-muted-foreground">
+            A world backup is taken automatically before anything is replaced.
+          </p>
+        )}
+      </div>
 
       <LinkProjectDialog instance={instance} open={linkDialogOpen} onOpenChange={setLinkDialogOpen} />
 

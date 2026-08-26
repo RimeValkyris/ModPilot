@@ -84,6 +84,15 @@ pub async fn import_instance(
             .map_err(|e| format!("Detection task failed: {e}"))?
     };
 
+    // Force ModpackPilot's own sane defaults onto the imported pack (most
+    // importantly: whitelist off, so the pack's own `white-list=true`
+    // doesn't lock everyone out on first boot). Best-effort - a pack with
+    // no server.properties yet is fine, and a failure here shouldn't sink
+    // an otherwise-successful import.
+    if let Err(e) = super::server_properties::apply_import_defaults(&server_dir).await {
+        tracing::warn!("Couldn't apply default server properties on import: {e}");
+    }
+
     let min_ram_mb = request.min_ram_mb.unwrap_or(2048);
     let max_ram_mb = request.max_ram_mb.unwrap_or(4096);
     if min_ram_mb <= 0 || max_ram_mb <= 0 || min_ram_mb > max_ram_mb {
@@ -116,6 +125,7 @@ pub async fn import_instance(
         restart_schedule: None,
         backup_schedule: None,
         backup_keep_last: 0,
+        update_policy: "off".to_string(),
     };
 
     if let Err(e) = insert_instance(&state, &instance).await {
@@ -128,6 +138,82 @@ pub async fn import_instance(
     }
 
     Ok(instance)
+}
+
+/// Updates an existing instance in place from a local ZIP or folder, for
+/// packs that aren't on Modrinth (CurseForge-only, private, or homemade)
+/// and so have no update source to check against.
+///
+/// This is the manual counterpart to `apply_modpack_update`, and it keeps
+/// the same guarantees: the world, `server.properties`, whitelist/ops/bans
+/// and `eula.txt` are never overwritten, files the previous pack installed
+/// but this one doesn't are cleaned up, and anything added by hand is left
+/// alone (see `crate::packs`).
+///
+/// A world backup is taken first and the instance must be stopped -
+/// replacing mod jars under a live server corrupts it, and a pack update
+/// can leave an existing world unloadable.
+#[tauri::command]
+pub async fn update_instance_from_source(
+    state: State<'_, AppState>,
+    id: String,
+    source: ImportSource,
+) -> Result<Instance, String> {
+    if state.processes.is_running(&id).await {
+        return Err("Stop the instance before updating it from a file".to_string());
+    }
+
+    let instance = super::instance::fetch_instance(&state, &id)
+        .await?
+        .ok_or_else(|| "Instance not found".to_string())?;
+
+    let instance_dir = PathBuf::from(&instance.server_directory);
+    let server_dir = instance_dir.join("server");
+    let world_folder_name = super::diagnostics::detect_world_folder_name(&server_dir).await;
+
+    // Back up before touching anything - but only if there's actually a
+    // world to lose. A never-started instance has none, and failing the
+    // update over that would be nonsense.
+    if server_dir.join(&world_folder_name).is_dir() {
+        super::backup::create_world_backup(state.clone(), id.clone())
+            .await
+            .map_err(|e| format!("Aborted - couldn't back up the world first: {e}"))?;
+    }
+
+    // Stage into the instance folder rather than a system temp dir so the
+    // copy stays on the same volume (a multi-GB pack crossing drives is
+    // slow) and any leftovers are obvious and self-cleaning.
+    let staging = instance_dir.join(".pack-staging");
+    let _ = tokio::fs::remove_dir_all(&staging).await;
+    tokio::fs::create_dir_all(&staging)
+        .await
+        .map_err(|e| format!("Failed to prepare staging folder: {e}"))?;
+
+    let staged = copy_source_into(source, staging.clone()).await;
+    let result = match staged {
+        Ok(()) => {
+            crate::packs::apply_staged_pack(&instance_dir, &server_dir, &staging, &world_folder_name)
+                .await
+                .map(|_| ())
+        }
+        Err(e) => Err(e),
+    };
+    let _ = tokio::fs::remove_dir_all(&staging).await;
+    result?;
+
+    // The installed content no longer corresponds to whatever Modrinth
+    // version was recorded, so clear it rather than let "Check for Updates"
+    // compare against a version that isn't what's on disk any more. The
+    // project link itself is kept - it's still the same modpack.
+    sqlx::query("UPDATE instances SET modrinth_version_id = NULL WHERE id = ?")
+        .bind(&id)
+        .execute(&state.db)
+        .await
+        .map_err(|e| format!("Update applied, but failed to clear the recorded version: {e}"))?;
+
+    super::instance::fetch_instance(&state, &id)
+        .await?
+        .ok_or_else(|| "Instance not found".to_string())
 }
 
 async fn copy_source_into(source: ImportSource, dest: PathBuf) -> Result<(), String> {

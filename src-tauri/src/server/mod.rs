@@ -1,4 +1,5 @@
 mod alerts;
+mod autoupdate;
 mod crash_tracker;
 mod events;
 mod manager;
@@ -8,6 +9,7 @@ mod process;
 mod scheduler;
 
 pub use alerts::{spawn as spawn_alerts, AlertTracker};
+pub use autoupdate::UpdateCheckTracker;
 pub use crash_tracker::CrashTracker;
 pub use manager::{ProcessManager, RunningProcess};
 pub use monitor::ResourceMonitor;

@@ -6,6 +6,7 @@ mod java;
 mod logging;
 mod models;
 mod modrinth;
+mod packs;
 mod server;
 
 use filesystem::AppPaths;
@@ -22,6 +23,7 @@ pub struct AppState {
     pub schedules: server::ScheduleTracker,
     pub players: server::PlayerTracker,
     pub alerts: server::AlertTracker,
+    pub update_checks: server::UpdateCheckTracker,
 }
 
 /// Checks for running servers before actually exiting: if any are running,
@@ -93,6 +95,7 @@ pub fn run() {
                 schedules: server::ScheduleTracker::new(),
                 players: server::PlayerTracker::new(),
                 alerts: server::AlertTracker::new(),
+                update_checks: server::UpdateCheckTracker::new(),
             });
 
             // Launch any instance marked auto-start, once the window/state
@@ -169,6 +172,7 @@ pub fn run() {
             commands::instance::set_instance_schedules,
             commands::import::analyze_import,
             commands::import::import_instance,
+            commands::import::update_instance_from_source,
             commands::java::list_java_installations,
             commands::java::detect_java_installations,
             commands::java::set_default_java,
@@ -222,6 +226,7 @@ pub fn run() {
             commands::modrinth::check_modpack_update,
             commands::modrinth::list_modpack_versions,
             commands::modrinth::apply_modpack_update,
+            commands::modrinth::set_update_policy,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

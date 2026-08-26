@@ -44,6 +44,8 @@ interface InstancesState {
     backupSchedule: string | null,
     backupKeepLast: number,
   ) => Promise<Instance>;
+  setUpdatePolicy: (id: string, policy: string) => Promise<Instance>;
+  updateInstanceFromSource: (id: string, source: ImportSource) => Promise<Instance>;
   /** Applied from the `instance-status-changed` Tauri event. */
   applyStatusUpdate: (id: string, status: ServerStatus) => void;
 }
@@ -153,6 +155,18 @@ export const useInstancesStore = create<InstancesState>((set, get) => ({
       backupSchedule,
       backupKeepLast,
     );
+    set({ instances: get().instances.map((i) => (i.id === id ? updated : i)) });
+    return updated;
+  },
+
+  setUpdatePolicy: async (id, policy) => {
+    const updated = await api.setUpdatePolicy(id, policy);
+    set({ instances: get().instances.map((i) => (i.id === id ? updated : i)) });
+    return updated;
+  },
+
+  updateInstanceFromSource: async (id, source) => {
+    const updated = await api.updateInstanceFromSource(id, source);
     set({ instances: get().instances.map((i) => (i.id === id ? updated : i)) });
     return updated;
   },

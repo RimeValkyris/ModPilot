@@ -23,6 +23,10 @@ pub const PLAYERS_EVENT: &str = "instance-players-changed";
 /// see `server::alerts`.
 pub const RESOURCE_ALERT_EVENT: &str = "instance-resource-alert";
 
+/// Emitted when a linked instance has a newer Modrinth version available -
+/// see `server::autoupdate`.
+pub const MODPACK_UPDATE_EVENT: &str = "instance-modpack-update-available";
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StatusChangedPayload {
@@ -57,4 +61,14 @@ pub struct ResourceAlertPayload {
     pub instance_id: String,
     pub kind: &'static str,
     pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModpackUpdateAvailablePayload {
+    pub instance_id: String,
+    pub version_name: String,
+    pub version_number: String,
+    /// True when the instance policy is "auto" and installation has begun.
+    pub installing: bool,
 }
