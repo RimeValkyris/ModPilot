@@ -16,7 +16,8 @@ use crate::AppState;
 const INSTANCE_COLUMNS: &str = "id, name, minecraft_version, loader, loader_version, java_installation_id,
      min_ram_mb, max_ram_mb, server_directory, server_jar, launch_mode, jvm_args, server_args,
      status, auto_start, auto_restart, created_at, last_launched_at,
-     modrinth_project_id, modrinth_project_title, modrinth_version_id";
+     modrinth_project_id, modrinth_project_title, modrinth_version_id,
+     restart_schedule, backup_schedule, backup_keep_last";
 
 /// Lists every server instance ModpackPilot knows about, newest first.
 #[tauri::command]
@@ -104,6 +105,9 @@ pub async fn create_instance(
         modrinth_project_id: None,
         modrinth_project_title: None,
         modrinth_version_id: None,
+        restart_schedule: None,
+        backup_schedule: None,
+        backup_keep_last: 0,
     };
 
     if let Err(e) = insert_instance(&state, &instance).await {
@@ -193,6 +197,9 @@ pub async fn duplicate_instance(
         modrinth_project_id: source.modrinth_project_id.clone(),
         modrinth_project_title: source.modrinth_project_title.clone(),
         modrinth_version_id: source.modrinth_version_id.clone(),
+        restart_schedule: source.restart_schedule.clone(),
+        backup_schedule: source.backup_schedule.clone(),
+        backup_keep_last: source.backup_keep_last,
     };
 
     if let Err(e) = insert_instance(&state, &instance).await {
@@ -406,8 +413,9 @@ pub(crate) async fn insert_instance(
         "INSERT INTO instances (id, name, minecraft_version, loader, loader_version, java_installation_id,
                                  min_ram_mb, max_ram_mb, server_directory, server_jar, launch_mode, jvm_args, server_args,
                                  status, auto_start, auto_restart, created_at, last_launched_at,
-                                 modrinth_project_id, modrinth_project_title, modrinth_version_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                                 modrinth_project_id, modrinth_project_title, modrinth_version_id,
+                                 restart_schedule, backup_schedule, backup_keep_last)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&instance.id)
     .bind(&instance.name)
@@ -430,6 +438,9 @@ pub(crate) async fn insert_instance(
     .bind(&instance.modrinth_project_id)
     .bind(&instance.modrinth_project_title)
     .bind(&instance.modrinth_version_id)
+    .bind(&instance.restart_schedule)
+    .bind(&instance.backup_schedule)
+    .bind(instance.backup_keep_last)
     .execute(&state.db)
     .await
     .map_err(|e| format!("Failed to save instance: {e}"))?;
@@ -449,4 +460,51 @@ pub(crate) async fn write_instance_json(
     let json = serde_json::to_string_pretty(instance)
         .map_err(|e| std::io::Error::other(format!("Failed to serialize instance.json: {e}")))?;
     tokio::fs::write(server_directory.join("instance.json"), json).await
+}
+
+/// Saves an instance's automation schedules. Validates the schedule strings
+/// here rather than trusting the frontend, so a malformed value can never
+/// reach the scheduler and silently never fire.
+#[tauri::command]
+pub async fn set_instance_schedules(
+    state: State<'_, AppState>,
+    id: String,
+    restart_schedule: Option<String>,
+    backup_schedule: Option<String>,
+    backup_keep_last: i64,
+) -> Result<Instance, String> {
+    for (label, raw) in [("restart", &restart_schedule), ("backup", &backup_schedule)] {
+        if let Some(raw) = raw.as_deref().filter(|r| !r.trim().is_empty()) {
+            if crate::server::Schedule::parse(raw).is_none() {
+                return Err(format!("Invalid {label} schedule: \"{raw}\""));
+            }
+        }
+    }
+    if backup_keep_last < 0 {
+        return Err("Backup retention cannot be negative".to_string());
+    }
+
+    // Empty string and None both mean "disabled" - normalize so the
+    // scheduler only ever has to check for NULL.
+    let restart = restart_schedule.filter(|r| !r.trim().is_empty());
+    let backup = backup_schedule.filter(|r| !r.trim().is_empty());
+
+    let result = sqlx::query(
+        "UPDATE instances SET restart_schedule = ?, backup_schedule = ?, backup_keep_last = ? WHERE id = ?",
+    )
+    .bind(&restart)
+    .bind(&backup)
+    .bind(backup_keep_last)
+    .bind(&id)
+    .execute(&state.db)
+    .await
+    .map_err(|e| format!("Failed to save schedules: {e}"))?;
+
+    if result.rows_affected() == 0 {
+        return Err("Instance not found".to_string());
+    }
+
+    fetch_instance(&state, &id)
+        .await?
+        .ok_or_else(|| "Instance not found".to_string())
 }

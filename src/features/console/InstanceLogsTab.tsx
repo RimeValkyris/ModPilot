@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { toast } from "sonner";
 import { save as saveDialog } from "@tauri-apps/plugin-dialog";
-import { openPath } from "@tauri-apps/plugin-opener";
 import { Download, FolderOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/tauri";
@@ -12,8 +11,7 @@ export function InstanceLogsTab({ instance }: { instance: Instance }) {
 
   async function handleOpenFolder() {
     try {
-      const dir = await api.getInstanceLogsDir(instance.id);
-      await openPath(dir);
+      await api.openManagedFolder({ instanceLogs: { id: instance.id } });
     } catch (err) {
       toast.error("Failed to open logs folder", { description: String(err) });
     }

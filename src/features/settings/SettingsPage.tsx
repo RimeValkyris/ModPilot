@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
-import { openPath } from "@tauri-apps/plugin-opener";
 import {
   disable as disableAutostart,
   enable as enableAutostart,
@@ -350,8 +349,7 @@ function DiagnosticsSection() {
 
   async function handleOpenLogsFolder() {
     try {
-      const dir = await api.getAppLogsDir();
-      await openPath(dir);
+      await api.openManagedFolder({ appLogs: {} });
     } catch (err) {
       toast.error("Failed to open logs folder", { description: String(err) });
     }

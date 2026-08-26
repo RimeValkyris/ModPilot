@@ -42,6 +42,11 @@ export interface Instance {
   modrinthProjectId: string | null;
   modrinthProjectTitle: string | null;
   modrinthVersionId: string | null;
+  /** "every:6" | "daily:04:00" | null (disabled). */
+  restartSchedule: string | null;
+  backupSchedule: string | null;
+  /** How many backups a scheduled backup keeps; 0 = keep all. */
+  backupKeepLast: number;
 }
 
 /** Input for `update_instance_settings` (Configuration tab). */

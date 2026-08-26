@@ -69,9 +69,36 @@ export const api = {
 
   getAllResourceUsage: () => invoke<Record<string, ResourceUsage>>("get_all_resource_usage"),
 
+  getSystemMemoryMb: () => invoke<number>("get_system_memory_mb"),
+
+  listOnlinePlayers: (id: string) => invoke<string[]>("list_online_players", { id }),
+
+  setInstanceSchedules: (
+    id: string,
+    restartSchedule: string | null,
+    backupSchedule: string | null,
+    backupKeepLast: number,
+  ) =>
+    invoke<Instance>("set_instance_schedules", {
+      id,
+      restartSchedule,
+      backupSchedule,
+      backupKeepLast,
+    }),
+
   listRunningInstanceIds: () => invoke<string[]>("list_running_instance_ids"),
 
   getAppLogsDir: () => invoke<string>("get_app_logs_dir"),
+
+  /** Opens one of ModpackPilot's own folders. The backend resolves the path
+   * itself - the frontend never names a path to open, which is what lets the
+   * opener plugin stay scoped to nothing. */
+  openManagedFolder: (
+    target:
+      | { appLogs: Record<string, never> }
+      | { instanceLogs: { id: string } }
+      | { instanceSubfolder: { id: string; folder: string } },
+  ) => invoke<void>("open_managed_folder", { target }),
 
   exportAppLog: (destPath: string) => invoke<void>("export_app_log", { destPath }),
 

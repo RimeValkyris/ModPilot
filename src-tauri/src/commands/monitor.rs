@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use sysinfo::System;
 use tauri::State;
 
 use crate::models::ResourceUsage;
@@ -31,4 +32,24 @@ pub async fn get_all_resource_usage(
         result.insert(id, usage);
     }
     Ok(result)
+}
+
+/// Total physical RAM installed on this machine, in MB - used to show a
+/// real "you have N GB available" hint next to an instance's RAM sliders
+/// instead of leaving the operator to guess a safe value.
+#[tauri::command]
+pub fn get_system_memory_mb() -> u64 {
+    let mut system = System::new();
+    system.refresh_memory();
+    system.total_memory() / (1024 * 1024)
+}
+
+/// Who is currently online on a running server, from the console-derived
+/// roster (see `server::players`). Empty for a stopped instance.
+#[tauri::command]
+pub async fn list_online_players(
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<Vec<String>, String> {
+    Ok(state.players.list(&id).await)
 }

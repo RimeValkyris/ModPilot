@@ -69,6 +69,42 @@ pub async fn create_world_backup(state: State<'_, AppState>, id: String) -> Resu
     Ok(file_name)
 }
 
+/// Deletes all but the `keep_last` newest backups for an instance.
+///
+/// Used by scheduled backups so an automated schedule can't quietly fill a
+/// disk - a large modded world zipped every few hours adds up fast. Manual
+/// backups deliberately do NOT prune: someone clicking "Create Backup" is
+/// making a deliberate checkpoint, and silently deleting an older one they
+/// also made deliberately would be a nasty surprise.
+pub(crate) async fn prune_backups(
+    state: &State<'_, AppState>,
+    id: &str,
+    keep_last: i64,
+) -> Result<(), String> {
+    if keep_last <= 0 {
+        return Ok(());
+    }
+
+    let backups = list_world_backups(state.clone(), id.to_string()).await?;
+    let backups_dir = backups_dir_for(state, id).await?;
+
+    for backup in backups.into_iter().skip(keep_last as usize) {
+        // Re-validate even though these names came from our own listing:
+        // it keeps the "nothing outside backups/ is ever deleted" guarantee
+        // local to this function rather than resting on a caller's behavior.
+        if validate_backup_name(&backup.name).is_err() {
+            continue;
+        }
+        let path = backups_dir.join(&backup.name);
+        if let Err(e) = tokio::fs::remove_file(&path).await {
+            tracing::warn!("Failed to prune old backup {}: {e}", path.display());
+        } else {
+            tracing::info!("Pruned old backup {}", backup.name);
+        }
+    }
+    Ok(())
+}
+
 /// Lists an instance's saved world backups, newest first.
 #[tauri::command]
 pub async fn list_world_backups(state: State<'_, AppState>, id: String) -> Result<Vec<WorldBackup>, String> {
