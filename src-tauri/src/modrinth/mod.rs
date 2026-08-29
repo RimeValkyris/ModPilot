@@ -304,7 +304,6 @@ where
     let total = index.files.len();
     let mut done = 0usize;
     on_progress(0, total);
-
     // Download every file the manifest lists - `.mrpack` only bundles a
     // manifest of download URLs, not the mod jars themselves.
     for file in &index.files {
@@ -402,7 +401,14 @@ mod live_tests {
             .await
             .expect("project versions");
         let preview = preview(&versions[0]);
-        assert!(preview.minecraft_version.is_some(), "preview should name a Minecraft version");
-        assert_ne!(preview.loader, ServerLoader::Unknown, "preview should name a loader");
+        assert!(
+            preview.minecraft_version.is_some(),
+            "preview should name a Minecraft version"
+        );
+        assert_ne!(
+            preview.loader,
+            ServerLoader::Unknown,
+            "preview should name a loader"
+        );
     }
 }

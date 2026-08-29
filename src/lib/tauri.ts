@@ -191,7 +191,6 @@ export const api = {
   searchFtbPacks: (query: string) => invoke<FtbPack[]>("search_ftb_packs", { query }),
 
   browseFtbPacks: () => invoke<FtbPack[]>("browse_ftb_packs"),
-
   getFtbPack: (packId: number) => invoke<FtbPack>("get_ftb_pack", { packId }),
 
   analyzeFtbVersion: (packId: number, versionId: number) =>

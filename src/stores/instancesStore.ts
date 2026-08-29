@@ -111,7 +111,6 @@ export const useInstancesStore = create<InstancesState>((set, get) => ({
     set({ instances: [instance, ...get().instances] });
     return instance;
   },
-
   renameInstance: async (id, newName) => {
     const updated = await api.renameInstance(id, newName);
     set({

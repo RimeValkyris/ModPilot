@@ -414,7 +414,6 @@ pub async fn apply_modpack_update(
     let instance_dir = Path::new(&instance.server_directory);
     let server_dir = instance_dir.join("server");
     let world_folder_name = detect_world_folder_name(&server_dir).await;
-
     back_up_world_before_update(&state, &id, &server_dir, &world_folder_name).await?;
 
     // No progress reporting here: the update UI shows a single spinner

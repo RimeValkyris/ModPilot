@@ -435,7 +435,6 @@ where
 mod live_tests {
     use super::*;
 
-
     /// The browse list is what the import wizard shows before anyone types,
     /// so an empty one would leave the picker looking broken.
     #[tokio::test]
@@ -445,7 +444,6 @@ mod live_tests {
         assert!(!packs.is_empty());
         assert!(packs.iter().any(|p| p.icon_url.is_some()), "packs should resolve icons");
     }
-
     /// FTB Presents Direwolf20 1.21, and a version of it known to exist.
     const PACK_ID: i64 = 126;
     const VERSION_ID: i64 = 100464;

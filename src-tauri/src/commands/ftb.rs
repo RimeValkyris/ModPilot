@@ -32,7 +32,6 @@ pub async fn search_ftb_packs(query: String) -> Result<Vec<FtbPack>, String> {
 pub async fn browse_ftb_packs() -> Result<Vec<FtbPack>, String> {
     ftb::browse_packs().await
 }
-
 /// Loads one pack, including its version list (newest first, which is not
 /// the order FTB returns them in).
 #[tauri::command]
