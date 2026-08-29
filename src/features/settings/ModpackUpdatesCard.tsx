@@ -13,14 +13,6 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import {
   Dialog,
@@ -41,6 +33,8 @@ import {
 } from "@/components/ui/alert-dialog";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { useInstancesStore } from "@/stores/instancesStore";
+import { FtbUpdatesSection } from "./FtbUpdatesSection";
+import { UpdatePolicySelect } from "./UpdatePolicySelect";
 import { api } from "@/lib/tauri";
 import type { Instance } from "@/types/instance";
 import type { ModpackUpdateCheck, ModrinthSearchHit, ModrinthVersion } from "@/types/modrinth";
@@ -171,11 +165,13 @@ function BrowseVersionsDialog({
   open,
   onOpenChange,
   onInstalled,
+  isRunning,
 }: {
   instance: Instance;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onInstalled: (version: ModrinthVersion) => void;
+  isRunning: boolean;
 }) {
   const { applyModpackUpdate } = useInstancesStore();
   const [versions, setVersions] = useState<ModrinthVersion[]>([]);
@@ -258,7 +254,7 @@ function BrowseVersionsDialog({
                 <Button
                   size="sm"
                   variant={isCurrent ? "outline" : "default"}
-                  disabled={installingId !== null}
+                  disabled={installingId !== null || isRunning}
                   onClick={() => handleInstall(version)}
                   className="shrink-0"
                 >
@@ -272,8 +268,70 @@ function BrowseVersionsDialog({
             );
           })}
         </div>
+        {isRunning && (
+          <p className="text-xs text-muted-foreground">
+            Stop the server first - swapping mod files under a running server corrupts it.
+          </p>
+        )}
       </DialogContent>
     </Dialog>
+  );
+}
+
+/** Most modpacks aren't on any service ModpackPilot can query -
+ * CurseForge-only packs, privately-shared packs, or ones a friend just
+ * zipped up - so this path has to work with nothing linked, whichever
+ * update source (if any) the instance has. */
+function UpdateFromFileSection({
+  isRunning,
+  isUpdating,
+  onPick,
+}: {
+  isRunning: boolean;
+  isUpdating: boolean;
+  onPick: (directory: boolean) => void;
+}) {
+  return (
+    <div className="flex flex-col gap-2 border-t border-border pt-4">
+      <div>
+        <h3 className="text-sm font-medium">Update from a file</h3>
+        <p className="text-xs text-muted-foreground">
+          For packs ModpackPilot can't check online. Point it at the new version's server ZIP
+          or folder and it replaces the pack's files in place - your world, server.properties,
+          and whitelist/ops/bans are left untouched, and files the old version installed but
+          the new one doesn't are cleaned up.
+        </p>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={isUpdating || isRunning}
+          onClick={() => onPick(false)}
+        >
+          <Upload />
+          {isUpdating ? "Updating…" : "From ZIP"}
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={isUpdating || isRunning}
+          onClick={() => onPick(true)}
+        >
+          <FolderOpen />
+          From Folder
+        </Button>
+      </div>
+      {isRunning ? (
+        <p className="text-xs text-muted-foreground">
+          Stop the server first - swapping mod files under a running server corrupts it.
+        </p>
+      ) : (
+        <p className="text-xs text-muted-foreground">
+          A world backup is taken automatically before anything is replaced.
+        </p>
+      )}
+    </div>
   );
 }
 
@@ -288,6 +346,11 @@ export function ModpackUpdatesCard({ instance }: { instance: Instance }) {
   const [isApplying, setIsApplying] = useState(false);
 
   const isLinked = instance.modrinthProjectId !== null;
+  // An instance installed from FTB has its own update source, so it gets
+  // the FTB controls instead of Modrinth's - never both at once, which
+  // would leave two "Check for Updates" buttons disagreeing about what the
+  // installed version is.
+  const isFtbLinked = instance.ftbPackId !== null;
 
   async function handleCheck() {
     setIsChecking(true);
@@ -365,6 +428,19 @@ export function ModpackUpdatesCard({ instance }: { instance: Instance }) {
     }
   }
 
+  if (isFtbLinked) {
+    return (
+      <section className="flex flex-col gap-3 rounded-xl border border-border bg-card p-4">
+        <FtbUpdatesSection instance={instance} />
+        <UpdateFromFileSection
+          isRunning={isRunning}
+          isUpdating={isUpdatingFromFile}
+          onPick={handleUpdateFromFile}
+        />
+      </section>
+    );
+  }
+
   return (
     <section className="flex flex-col gap-3 rounded-xl border border-border bg-card p-4">
       <div className="flex items-center justify-between gap-2">
@@ -373,7 +449,7 @@ export function ModpackUpdatesCard({ instance }: { instance: Instance }) {
           <p className="text-xs text-muted-foreground">
             {isLinked
               ? `Linked to "${instance.modrinthProjectTitle}" on Modrinth.`
-              : "Link this instance to a Modrinth project to check for and install updates."}
+              : "Link this instance to a Modrinth project or an FTB modpack to check for and install updates."}
           </p>
         </div>
         {isLinked ? (
@@ -382,10 +458,13 @@ export function ModpackUpdatesCard({ instance }: { instance: Instance }) {
             Unlink
           </Button>
         ) : (
-          <Button variant="outline" size="sm" onClick={() => setLinkDialogOpen(true)}>
-            <Link2 />
-            Link Project
-          </Button>
+          <div className="flex shrink-0 gap-2">
+            <Button variant="outline" size="sm" onClick={() => setLinkDialogOpen(true)}>
+              <Link2 />
+              Link Project
+            </Button>
+            <FtbUpdatesSection instance={instance} />
+          </div>
         )}
       </div>
 
@@ -402,33 +481,10 @@ export function ModpackUpdatesCard({ instance }: { instance: Instance }) {
             </Button>
           </div>
 
-          <div className="flex flex-col gap-1.5 border-t border-border pt-3">
-            <Label className="text-xs font-medium">When a new version is published</Label>
-            <Select value={instance.updatePolicy} onValueChange={(v) => v && handlePolicyChange(v)}>
-              <SelectTrigger className="w-64" size="sm">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="off" label="Do nothing">
-                  Do nothing
-                </SelectItem>
-                <SelectItem value="notify" label="Notify me">
-                  Notify me
-                </SelectItem>
-                <SelectItem value="auto" label="Install automatically">
-                  Install automatically
-                </SelectItem>
-              </SelectContent>
-            </Select>
-            {instance.updatePolicy === "auto" && (
-              <p className="flex items-start gap-1.5 text-xs text-amber-600 dark:text-amber-400">
-                <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
-                Before installing, the server is stopped and the world is backed up. Updates are
-                skipped while anyone is online, and that safety backup is never auto-deleted by
-                retention. A pack update can still break an existing world - keep an eye on it.
-              </p>
-            )}
-          </div>
+          <UpdatePolicySelect
+            value={instance.updatePolicy}
+            onChange={handlePolicyChange}
+          />
 
           {checkResult && !checkResult.hasUpdate && checkResult.latestVersion && (
             <p className="text-sm text-muted-foreground">Up to date.</p>
@@ -457,58 +513,30 @@ export function ModpackUpdatesCard({ instance }: { instance: Instance }) {
                   {checkResult.latestVersion.changelog}
                 </p>
               )}
-              <Button size="sm" className="w-fit" disabled={isApplying} onClick={handleUpdate}>
+              <Button
+                size="sm"
+                className="w-fit"
+                disabled={isApplying || isRunning}
+                onClick={handleUpdate}
+              >
                 <Download />
                 {isApplying ? "Installing… please don't close ModpackPilot" : "Update Now"}
               </Button>
+              {isRunning && (
+                <p className="text-xs text-muted-foreground">
+                  Stop the server first - swapping mod files under a running server corrupts it.
+                </p>
+              )}
             </div>
           )}
         </div>
       )}
 
-      {/* Most modpacks aren't on Modrinth at all - CurseForge-only packs,
-          privately-shared packs, or ones a friend just zipped up - so this
-          path has to work with nothing linked. */}
-      <div className="flex flex-col gap-2 border-t border-border pt-4">
-        <div>
-          <h3 className="text-sm font-medium">Update from a file</h3>
-          <p className="text-xs text-muted-foreground">
-            For packs that aren't on Modrinth. Point it at the new version's server ZIP or
-            folder and it replaces the pack's files in place - your world, server.properties,
-            and whitelist/ops/bans are left untouched, and files the old version installed
-            but the new one doesn't are cleaned up.
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={isUpdatingFromFile || isRunning}
-            onClick={() => handleUpdateFromFile(false)}
-          >
-            <Upload />
-            {isUpdatingFromFile ? "Updating…" : "From ZIP"}
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={isUpdatingFromFile || isRunning}
-            onClick={() => handleUpdateFromFile(true)}
-          >
-            <FolderOpen />
-            From Folder
-          </Button>
-        </div>
-        {isRunning ? (
-          <p className="text-xs text-muted-foreground">
-            Stop the server first - swapping mod files under a running server corrupts it.
-          </p>
-        ) : (
-          <p className="text-xs text-muted-foreground">
-            A world backup is taken automatically before anything is replaced.
-          </p>
-        )}
-      </div>
+      <UpdateFromFileSection
+        isRunning={isRunning}
+        isUpdating={isUpdatingFromFile}
+        onPick={handleUpdateFromFile}
+      />
 
       <LinkProjectDialog instance={instance} open={linkDialogOpen} onOpenChange={setLinkDialogOpen} />
 
@@ -516,6 +544,7 @@ export function ModpackUpdatesCard({ instance }: { instance: Instance }) {
         instance={instance}
         open={browseOpen}
         onOpenChange={setBrowseOpen}
+        isRunning={isRunning}
         onInstalled={(version) =>
           setCheckResult({ hasUpdate: false, currentVersionId: version.id, latestVersion: version })
         }

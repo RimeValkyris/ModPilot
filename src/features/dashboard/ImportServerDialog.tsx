@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import { FileArchive, Folder, PackagePlus, UploadCloud } from "lucide-react";
+import { Boxes, FileArchive, Folder, PackagePlus, UploadCloud } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -32,6 +32,7 @@ import {
   type DetectedServerInfo,
   type ImportSource,
 } from "@/types/import";
+import { FtbImportPanel } from "./FtbImportPanel";
 
 const LOADER_LABELS: Record<ServerLoader, string> = {
   vanilla: "Vanilla",
@@ -42,7 +43,7 @@ const LOADER_LABELS: Record<ServerLoader, string> = {
   unknown: "Unknown",
 };
 
-type Step = "select" | "analyzing" | "review";
+type Step = "select" | "analyzing" | "review" | "ftb";
 
 function sourceLabel(source: ImportSource): string {
   const fileName = source.path.split(/[/\\]/).pop() ?? source.path;
@@ -197,8 +198,8 @@ export function ImportServerDialog() {
               <DialogTitle>Import Server</DialogTitle>
               <DialogDescription>
                 Import an existing Minecraft server from a ZIP file or a
-                folder. Nothing is copied until you review what was
-                detected.
+                folder, or install an FTB modpack directly. Nothing is
+                copied until you review what was detected.
               </DialogDescription>
             </DialogHeader>
 
@@ -217,7 +218,23 @@ export function ImportServerDialog() {
                 Select Folder
               </Button>
             </div>
+
+            <Button variant="outline" onClick={() => setStep("ftb")}>
+              <Boxes />
+              Install an FTB modpack
+            </Button>
           </div>
+        )}
+
+        {step === "ftb" && (
+          <FtbImportPanel
+            onBack={() => setStep("select")}
+            onInstalled={() => {
+              setOpen(false);
+              reset();
+            }}
+            onBusyChange={setIsSubmitting}
+          />
         )}
 
         {step === "analyzing" && (

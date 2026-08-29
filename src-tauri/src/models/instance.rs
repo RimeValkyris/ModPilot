@@ -112,6 +112,12 @@ pub struct Instance {
     /// The version currently installed, if known. Distinguishes "linked but
     /// never checked" from "checked and up to date".
     pub modrinth_version_id: Option<String>,
+    /// Set once an instance is installed from (or linked to) an FTB
+    /// modpack - the FTB counterpart to the `modrinth_*` fields above.
+    /// FTB keys packs and versions by integer ID rather than slug.
+    pub ftb_pack_id: Option<i64>,
+    pub ftb_pack_name: Option<String>,
+    pub ftb_version_id: Option<i64>,
     /// Automation schedules, `None` when disabled. See
     /// `migrations/0006_scheduling.sql` for the text format.
     pub restart_schedule: Option<String>,
@@ -148,6 +154,9 @@ pub struct InstanceRow {
     pub modrinth_project_id: Option<String>,
     pub modrinth_project_title: Option<String>,
     pub modrinth_version_id: Option<String>,
+    pub ftb_pack_id: Option<i64>,
+    pub ftb_pack_name: Option<String>,
+    pub ftb_version_id: Option<i64>,
     pub restart_schedule: Option<String>,
     pub backup_schedule: Option<String>,
     pub backup_keep_last: i64,
@@ -208,6 +217,9 @@ impl From<InstanceRow> for Instance {
             modrinth_project_id: row.modrinth_project_id,
             modrinth_project_title: row.modrinth_project_title,
             modrinth_version_id: row.modrinth_version_id,
+            ftb_pack_id: row.ftb_pack_id,
+            ftb_pack_name: row.ftb_pack_name,
+            ftb_version_id: row.ftb_version_id,
             restart_schedule: row.restart_schedule,
             backup_schedule: row.backup_schedule,
             backup_keep_last: row.backup_keep_last,

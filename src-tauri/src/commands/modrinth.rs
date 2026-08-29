@@ -117,12 +117,23 @@ pub async fn list_modpack_versions(state: State<'_, AppState>, id: String) -> Re
 /// see `modrinth::apply_update` for exactly what does and doesn't get
 /// touched (the world, whitelist/ops/bans, and server.properties are
 /// always left alone).
+///
+/// A world backup is taken first and the instance must be stopped, for the
+/// same reasons `update_instance_from_source` requires both: replacing mod
+/// jars under a live server corrupts it, and a pack update can leave an
+/// existing world unloadable. Backups made here are never touched by
+/// scheduled-backup retention, so the way back from a bad update can't be
+/// pruned out from under the operator.
 #[tauri::command]
 pub async fn apply_modpack_update(
     state: State<'_, AppState>,
     id: String,
     version_id: String,
 ) -> Result<Instance, String> {
+    if state.processes.is_running(&id).await {
+        return Err("Stop the instance before updating it".to_string());
+    }
+
     let instance = fetch_instance(&state, &id)
         .await?
         .ok_or_else(|| "Instance not found".to_string())?;
@@ -133,7 +144,10 @@ pub async fn apply_modpack_update(
 
     let version = modrinth::get_version(&version_id).await?;
     let instance_dir = Path::new(&instance.server_directory);
-    let world_folder_name = detect_world_folder_name(&instance_dir.join("server")).await;
+    let server_dir = instance_dir.join("server");
+    let world_folder_name = detect_world_folder_name(&server_dir).await;
+
+    back_up_world_before_update(&state, &id, &server_dir, &world_folder_name).await?;
 
     modrinth::apply_update(instance_dir, &version, &world_folder_name).await?;
 
@@ -149,8 +163,31 @@ pub async fn apply_modpack_update(
         .ok_or_else(|| "Instance not found".to_string())
 }
 
-/// Sets how this instance handles newly published Modrinth versions:
+/// Takes the safety backup that precedes any in-place pack update.
+///
+/// Skipped when there's no world yet - a never-started instance has nothing
+/// to lose, and failing an update over that would be nonsense.
+pub(crate) async fn back_up_world_before_update(
+    state: &State<'_, AppState>,
+    id: &str,
+    server_dir: &Path,
+    world_folder_name: &str,
+) -> Result<(), String> {
+    if !server_dir.join(world_folder_name).is_dir() {
+        return Ok(());
+    }
+    super::backup::create_world_backup(state.clone(), id.to_string())
+        .await
+        .map(|_| ())
+        .map_err(|e| format!("Aborted - couldn't back up the world first: {e}"))
+}
+
+/// Sets how this instance handles newly published modpack versions:
 /// `"off"`, `"notify"`, or `"auto"` (see `server::autoupdate`).
+///
+/// Shared by both update sources - an instance linked to either Modrinth or
+/// FTB has something to check against, and the policy means the same thing
+/// either way.
 #[tauri::command]
 pub async fn set_update_policy(
     state: State<'_, AppState>,
@@ -167,8 +204,12 @@ pub async fn set_update_policy(
         let instance = fetch_instance(&state, &id)
             .await?
             .ok_or_else(|| "Instance not found".to_string())?;
-        if instance.modrinth_project_id.is_none() {
-            return Err("Link a Modrinth project first - there's nothing to check for updates against".to_string());
+        if instance.modrinth_project_id.is_none() && instance.ftb_pack_id.is_none() {
+            return Err(
+                "Link a Modrinth project or an FTB modpack first - there's nothing to check for \
+                 updates against"
+                    .to_string(),
+            );
         }
     }
 

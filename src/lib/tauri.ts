@@ -14,6 +14,13 @@ import type { ResourceUsage } from "@/types/monitor";
 import type { WorldBackup } from "@/types/backup";
 import type { ModInfo } from "@/types/mod";
 import type { ModpackUpdateCheck, ModrinthSearchHit, ModrinthVersion } from "@/types/modrinth";
+import type {
+  FtbImportRequest,
+  FtbPack,
+  FtbUpdateCheck,
+  FtbVersionPreview,
+  FtbVersionSummary,
+} from "@/types/ftb";
 import type { AvatarPresetInfo } from "@/types/avatar";
 
 /**
@@ -174,6 +181,29 @@ export const api = {
 
   setInstanceAvatarPreset: (id: string, presetId: string) =>
     invoke<void>("set_instance_avatar_preset", { id, presetId }),
+
+  searchFtbPacks: (query: string) => invoke<FtbPack[]>("search_ftb_packs", { query }),
+
+  getFtbPack: (packId: number) => invoke<FtbPack>("get_ftb_pack", { packId }),
+
+  analyzeFtbVersion: (packId: number, versionId: number) =>
+    invoke<FtbVersionPreview>("analyze_ftb_version", { packId, versionId }),
+
+  importFtbInstance: (request: FtbImportRequest) =>
+    invoke<Instance>("import_ftb_instance", { request }),
+
+  linkFtbPack: (id: string, packId: number) =>
+    invoke<Instance>("link_ftb_pack", { id, packId }),
+
+  unlinkFtbPack: (id: string) => invoke<Instance>("unlink_ftb_pack", { id }),
+
+  checkFtbUpdate: (id: string) => invoke<FtbUpdateCheck>("check_ftb_update", { id }),
+
+  listFtbVersions: (id: string) =>
+    invoke<FtbVersionSummary[]>("list_ftb_versions", { id }),
+
+  applyFtbUpdate: (id: string, versionId: number) =>
+    invoke<Instance>("apply_ftb_update", { id, versionId }),
 
   searchModrinthProjects: (query: string) =>
     invoke<ModrinthSearchHit[]>("search_modrinth_projects", { query }),

@@ -7,6 +7,7 @@ import type {
   UpdateInstanceSettingsRequest,
 } from "@/types/instance";
 import type { ImportInstanceRequest, ImportSource } from "@/types/import";
+import type { FtbImportRequest } from "@/types/ftb";
 
 interface InstancesState {
   instances: Instance[];
@@ -26,6 +27,10 @@ interface InstancesState {
     source: ImportSource,
     request: ImportInstanceRequest,
   ) => Promise<Instance>;
+  /** Installs an FTB modpack version as a new instance. Separate from
+   * `importInstance` because there is no local source to copy - the files
+   * are downloaded from FTB and the loader is installed afterwards. */
+  importFtbInstance: (request: FtbImportRequest) => Promise<Instance>;
   renameInstance: (id: string, newName: string) => Promise<Instance>;
   duplicateInstance: (id: string, newName: string) => Promise<Instance>;
   setInstanceJava: (id: string, javaInstallationId: string | null) => Promise<Instance>;
@@ -34,6 +39,9 @@ interface InstancesState {
     request: UpdateInstanceSettingsRequest,
   ) => Promise<Instance>;
   deleteInstance: (id: string) => Promise<void>;
+  linkFtbPack: (id: string, packId: number) => Promise<Instance>;
+  unlinkFtbPack: (id: string) => Promise<Instance>;
+  applyFtbUpdate: (id: string, versionId: number) => Promise<Instance>;
   linkModrinthProject: (id: string, projectId: string) => Promise<Instance>;
   unlinkModrinthProject: (id: string) => Promise<Instance>;
   applyModpackUpdate: (id: string, versionId: string) => Promise<Instance>;
@@ -89,6 +97,12 @@ export const useInstancesStore = create<InstancesState>((set, get) => ({
     return instance;
   },
 
+  importFtbInstance: async (request) => {
+    const instance = await api.importFtbInstance(request);
+    set({ instances: [instance, ...get().instances] });
+    return instance;
+  },
+
   renameInstance: async (id, newName) => {
     const updated = await api.renameInstance(id, newName);
     set({
@@ -122,6 +136,24 @@ export const useInstancesStore = create<InstancesState>((set, get) => ({
   deleteInstance: async (id) => {
     await api.deleteInstance(id);
     set({ instances: get().instances.filter((i) => i.id !== id) });
+  },
+
+  linkFtbPack: async (id, packId) => {
+    const updated = await api.linkFtbPack(id, packId);
+    set({ instances: get().instances.map((i) => (i.id === id ? updated : i)) });
+    return updated;
+  },
+
+  unlinkFtbPack: async (id) => {
+    const updated = await api.unlinkFtbPack(id);
+    set({ instances: get().instances.map((i) => (i.id === id ? updated : i)) });
+    return updated;
+  },
+
+  applyFtbUpdate: async (id, versionId) => {
+    const updated = await api.applyFtbUpdate(id, versionId);
+    set({ instances: get().instances.map((i) => (i.id === id ? updated : i)) });
+    return updated;
   },
 
   linkModrinthProject: async (id, projectId) => {

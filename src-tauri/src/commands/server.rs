@@ -8,7 +8,6 @@ use tauri::{AppHandle, State};
 use uuid::Uuid;
 
 use super::instance::fetch_instance;
-use crate::importer;
 use crate::java;
 use crate::models::{Instance, ServerLoader, ServerStatus};
 use crate::server::{self, RunningProcess};
@@ -57,7 +56,7 @@ pub async fn start_instance(app: AppHandle, state: State<'_, AppState>, id: Stri
     }
 
     let java_path = resolve_java_path(
-        &state,
+        &state.db,
         instance.java_installation_id.as_deref(),
         instance.minecraft_version.as_deref(),
         instance.loader,
@@ -267,57 +266,18 @@ pub async fn install_forge_server(state: State<'_, AppState>, id: String) -> Res
     };
 
     let java_path = resolve_java_path(
-        &state,
+        &state.db,
         instance.java_installation_id.as_deref(),
         instance.minecraft_version.as_deref(),
         instance.loader,
     )
     .await?;
 
-    let mut command = tokio::process::Command::new(&java_path);
-    command
-        .arg("-jar")
-        .arg(&installer_path)
-        .arg("--installServer")
-        .current_dir(&server_dir);
-    #[cfg(windows)]
-    {
-        // CREATE_NO_WINDOW - this runs headless; the installer's own GUI
-        // is exactly what --installServer exists to skip.
-        command.creation_flags(0x0800_0000);
-    }
+    crate::loader::run_installer_jar(&java_path, &installer_path, &server_dir).await?;
 
-    let output = command
-        .output()
-        .await
-        .map_err(|e| format!("Failed to run the Forge/NeoForge installer: {e}"))?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let tail = if stderr.trim().is_empty() { stdout } else { stderr };
-        return Err(format!(
-            "Forge/NeoForge installer failed (exit code {:?}): {}",
-            output.status.code(),
-            tail.lines().rev().take(5).collect::<Vec<_>>().join(" / "),
-        ));
-    }
-
-    let detected = {
-        let server_dir = server_dir.clone();
-        tauri::async_runtime::spawn_blocking(move || importer::detect_from_dir(&server_dir))
-            .await
-            .map_err(|e| format!("Detection task failed: {e}"))?
-    };
-
-    let Some(server_jar) = detected.server_jar else {
-        return Err(
-            "The installer finished, but ModpackPilot couldn't find the resulting server files. \
-             Check this instance's server folder manually."
-                .to_string(),
-        );
-    };
-    let launch_mode = if detected.server_jar_is_argfile { "argfile" } else { "jar" };
+    let installed = crate::loader::detect_installed(&server_dir).await?;
+    let server_jar = installed.server_jar;
+    let launch_mode = installed.launch_mode.as_str();
 
     sqlx::query("UPDATE instances SET server_jar = ?, launch_mode = ? WHERE id = ?")
         .bind(&server_jar)
@@ -424,8 +384,8 @@ async fn ensure_eula_accepted(working_dir: &Path) -> Result<(), String> {
 /// JVM. Silently picking the wrong JVM and hanging is far worse than
 /// saying plainly which Java is needed, so an unresolvable mismatch is now
 /// a clear error instead of a mystery freeze.
-async fn resolve_java_path(
-    state: &State<'_, AppState>,
+pub(crate) async fn resolve_java_path(
+    db: &sqlx::SqlitePool,
     java_installation_id: Option<&str>,
     minecraft_version: Option<&str>,
     loader: ServerLoader,
@@ -437,7 +397,7 @@ async fn resolve_java_path(
             "SELECT path, version FROM java_installations WHERE id = ?",
         )
         .bind(java_id)
-        .fetch_optional(&state.db)
+        .fetch_optional(db)
         .await
         .map_err(|e| format!("Failed to look up Java installation: {e}"))?
         .ok_or_else(|| "The Java installation assigned to this instance no longer exists".to_string())?;
@@ -462,7 +422,7 @@ async fn resolve_java_path(
     let installations = sqlx::query_as::<_, (String, String)>(
         "SELECT path, version FROM java_installations",
     )
-    .fetch_all(&state.db)
+    .fetch_all(db)
     .await
     .map_err(|e| format!("Failed to look up Java installations: {e}"))?;
 

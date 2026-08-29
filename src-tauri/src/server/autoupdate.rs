@@ -8,9 +8,10 @@ use tokio::sync::Mutex;
 use super::events::{ModpackUpdateAvailablePayload, MODPACK_UPDATE_EVENT};
 use crate::AppState;
 
-/// How often a linked instance is checked against Modrinth. Deliberately
-/// infrequent - a modpack publishes a new version every few weeks at most,
-/// and this is a network call per linked instance.
+/// How often a linked instance is checked against its modpack source
+/// (Modrinth or FTB). Deliberately infrequent - a modpack publishes a new
+/// version every few weeks at most, and this is a network call per linked
+/// instance.
 const CHECK_EVERY: Duration = Duration::hours(6);
 
 /// How long to wait for a graceful stop before giving up on an automatic
@@ -40,14 +41,25 @@ impl UpdateCheckTracker {
     }
 }
 
-/// Checks linked instances for new Modrinth versions and, depending on each
+/// Which service an instance's update was found on, and what to install.
+///
+/// The surrounding routine - wait for an empty server, stop it, back the
+/// world up, restart afterwards - is identical for both, so only the
+/// install step itself branches.
+enum PendingUpdate {
+    Modrinth { version_id: String },
+    Ftb { version_id: i64 },
+}
+
+/// Checks linked instances for new modpack versions and, depending on each
 /// instance's `update_policy`, either announces or installs them.
 pub(super) async fn tick(app: &AppHandle, now: DateTime<Utc>) {
     let rows: Vec<(String, String, String, Option<String>)> = {
         let state = app.state::<AppState>();
         match sqlx::query_as(
             "SELECT id, name, update_policy, modrinth_project_id FROM instances
-             WHERE update_policy != 'off' AND modrinth_project_id IS NOT NULL",
+             WHERE update_policy != 'off'
+               AND (modrinth_project_id IS NOT NULL OR ftb_pack_id IS NOT NULL)",
         )
         .fetch_all(&state.db)
         .await
@@ -60,7 +72,7 @@ pub(super) async fn tick(app: &AppHandle, now: DateTime<Utc>) {
         }
     };
 
-    for (id, name, policy, _project_id) in rows {
+    for (id, name, policy, project_id) in rows {
         let due = {
             let state = app.state::<AppState>();
             state.update_checks.take_due(&id, now).await
@@ -69,31 +81,25 @@ pub(super) async fn tick(app: &AppHandle, now: DateTime<Utc>) {
             continue;
         }
 
-        let check = {
-            let state = app.state::<AppState>();
-            crate::commands::modrinth::check_modpack_update(state, id.clone()).await
+        // A Modrinth link wins when an instance somehow has both: it is the
+        // one the operator linked by hand, rather than one recorded by an
+        // install.
+        let found = if project_id.is_some() {
+            check_modrinth(app, &id, &name).await
+        } else {
+            check_ftb(app, &id, &name).await
         };
-        let check = match check {
-            Ok(check) => check,
-            Err(e) => {
-                // A failed check is routine (offline, Modrinth down) - log it
-                // and try again next cycle rather than bothering the operator.
-                tracing::info!("Update check for {name} failed: {e}");
-                continue;
-            }
-        };
-
-        let Some(latest) = check.latest_version.filter(|_| check.has_update) else {
+        let Some((display_name, version_number, pending)) = found else {
             continue;
         };
 
-        tracing::info!("Update available for {name}: {}", latest.version_number);
+        tracing::info!("Update available for {name}: {version_number}");
         let _ = app.emit(
             MODPACK_UPDATE_EVENT,
             ModpackUpdateAvailablePayload {
                 instance_id: id.clone(),
-                version_name: latest.name.clone(),
-                version_number: latest.version_number.clone(),
+                version_name: display_name,
+                version_number: version_number.clone(),
                 installing: policy == "auto",
             },
         );
@@ -102,34 +108,86 @@ pub(super) async fn tick(app: &AppHandle, now: DateTime<Utc>) {
             notify(
                 app,
                 format!(
-                    "{name} has a new modpack version available ({}). Open its Configuration tab to install it.",
-                    latest.version_number
+                    "{name} has a new modpack version available ({version_number}). Open its Configuration tab to install it.",
                 ),
             )
             .await;
             continue;
         }
 
-        if let Err(e) = apply_unattended(app, &id, &name, &latest.id, &latest.version_number).await {
+        if let Err(e) = apply_unattended(app, &id, &name, &pending, &version_number).await {
             tracing::warn!("Automatic update failed for {name}: {e}");
             notify(app, format!("Automatic update for {name} failed: {e}")).await;
         }
     }
 }
 
-/// Stops the server (if running), backs the world up, installs the update,
-/// and starts it again.
+/// A failed check is routine (offline, the service down) - logged and
+/// retried next cycle rather than bothering the operator about it.
+async fn check_modrinth(
+    app: &AppHandle,
+    id: &str,
+    name: &str,
+) -> Option<(String, String, PendingUpdate)> {
+    let check = {
+        let state = app.state::<AppState>();
+        crate::commands::modrinth::check_modpack_update(state, id.to_string()).await
+    };
+    let check = match check {
+        Ok(check) => check,
+        Err(e) => {
+            tracing::info!("Update check for {name} failed: {e}");
+            return None;
+        }
+    };
+
+    let latest = check.latest_version.filter(|_| check.has_update)?;
+    Some((
+        latest.name.clone(),
+        latest.version_number.clone(),
+        PendingUpdate::Modrinth { version_id: latest.id },
+    ))
+}
+
+async fn check_ftb(
+    app: &AppHandle,
+    id: &str,
+    name: &str,
+) -> Option<(String, String, PendingUpdate)> {
+    let check = {
+        let state = app.state::<AppState>();
+        crate::commands::ftb::check_ftb_update(state, id.to_string()).await
+    };
+    let check = match check {
+        Ok(check) => check,
+        Err(e) => {
+            tracing::info!("Update check for {name} failed: {e}");
+            return None;
+        }
+    };
+
+    let latest = check.latest_version.filter(|_| check.has_update)?;
+    // FTB has no separate "version number" - the version's name is what
+    // operators see everywhere else, so it is used for both.
+    Some((
+        latest.name.clone(),
+        latest.name.clone(),
+        PendingUpdate::Ftb { version_id: latest.id },
+    ))
+}
+
+/// Stops the server (if running), installs the update, and starts it again.
 ///
 /// The order matters and is the whole point of doing this in one place:
-/// swapping mod jars under a live server corrupts it, and a pack update can
-/// render an existing world unloadable - so a backup is taken *every* time,
-/// regardless of the instance's own backup schedule, and it is never pruned
-/// by retention because it is the only way back from a bad update.
+/// swapping mod jars under a live server corrupts it. The world backup
+/// itself is taken by the apply commands (which every update path goes
+/// through, manual or not), so it happens exactly once and is never pruned
+/// by retention - it is the only way back from a bad update.
 async fn apply_unattended(
     app: &AppHandle,
     id: &str,
     name: &str,
-    version_id: &str,
+    pending: &PendingUpdate,
     version_number: &str,
 ) -> Result<(), String> {
     let was_running = {
@@ -175,17 +233,27 @@ async fn apply_unattended(
         }
     }
 
-    tracing::info!("Backing up {name} before automatic update");
-    {
-        let state = app.state::<AppState>();
-        crate::commands::backup::create_world_backup(state, id.to_string()).await?;
-    }
-
     tracing::info!("Installing {version_number} for {name}");
-    {
-        let state = app.state::<AppState>();
-        crate::commands::modrinth::apply_modpack_update(state, id.to_string(), version_id.to_string())
+    match pending {
+        PendingUpdate::Modrinth { version_id } => {
+            let state = app.state::<AppState>();
+            crate::commands::modrinth::apply_modpack_update(
+                state,
+                id.to_string(),
+                version_id.clone(),
+            )
             .await?;
+        }
+        PendingUpdate::Ftb { version_id } => {
+            let state = app.state::<AppState>();
+            crate::commands::ftb::apply_ftb_update(
+                app.clone(),
+                state,
+                id.to_string(),
+                *version_id,
+            )
+            .await?;
+        }
     }
 
     if was_running {
