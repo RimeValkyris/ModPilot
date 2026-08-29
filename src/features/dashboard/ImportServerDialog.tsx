@@ -32,7 +32,7 @@ import {
   type DetectedServerInfo,
   type ImportSource,
 } from "@/types/import";
-import { FtbImportPanel } from "./FtbImportPanel";
+import { ModpackBrowsePanel } from "./ModpackBrowsePanel";
 
 const LOADER_LABELS: Record<ServerLoader, string> = {
   vanilla: "Vanilla",
@@ -43,7 +43,7 @@ const LOADER_LABELS: Record<ServerLoader, string> = {
   unknown: "Unknown",
 };
 
-type Step = "select" | "analyzing" | "review" | "ftb";
+type Step = "select" | "analyzing" | "review" | "browse";
 
 function sourceLabel(source: ImportSource): string {
   const fileName = source.path.split(/[/\\]/).pop() ?? source.path;
@@ -198,8 +198,8 @@ export function ImportServerDialog() {
               <DialogTitle>Import Server</DialogTitle>
               <DialogDescription>
                 Import an existing Minecraft server from a ZIP file or a
-                folder, or install an FTB modpack directly. Nothing is
-                copied until you review what was detected.
+                folder, or install a modpack from Feed the Beast or Modrinth.
+                Nothing is copied until you review what was detected.
               </DialogDescription>
             </DialogHeader>
 
@@ -219,15 +219,15 @@ export function ImportServerDialog() {
               </Button>
             </div>
 
-            <Button variant="outline" onClick={() => setStep("ftb")}>
+            <Button variant="outline" onClick={() => setStep("browse")}>
               <Boxes />
-              Install an FTB modpack
+              Browse modpacks
             </Button>
           </div>
         )}
 
-        {step === "ftb" && (
-          <FtbImportPanel
+        {step === "browse" && (
+          <ModpackBrowsePanel
             onBack={() => setStep("select")}
             onInstalled={() => {
               setOpen(false);

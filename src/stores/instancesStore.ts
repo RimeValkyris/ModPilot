@@ -8,6 +8,7 @@ import type {
 } from "@/types/instance";
 import type { ImportInstanceRequest, ImportSource } from "@/types/import";
 import type { FtbImportRequest } from "@/types/ftb";
+import type { ModrinthImportRequest } from "@/types/modrinth";
 
 interface InstancesState {
   instances: Instance[];
@@ -31,6 +32,8 @@ interface InstancesState {
    * `importInstance` because there is no local source to copy - the files
    * are downloaded from FTB and the loader is installed afterwards. */
   importFtbInstance: (request: FtbImportRequest) => Promise<Instance>;
+  /** The Modrinth counterpart of `importFtbInstance`. */
+  importModrinthInstance: (request: ModrinthImportRequest) => Promise<Instance>;
   renameInstance: (id: string, newName: string) => Promise<Instance>;
   duplicateInstance: (id: string, newName: string) => Promise<Instance>;
   setInstanceJava: (id: string, javaInstallationId: string | null) => Promise<Instance>;
@@ -99,6 +102,12 @@ export const useInstancesStore = create<InstancesState>((set, get) => ({
 
   importFtbInstance: async (request) => {
     const instance = await api.importFtbInstance(request);
+    set({ instances: [instance, ...get().instances] });
+    return instance;
+  },
+
+  importModrinthInstance: async (request) => {
+    const instance = await api.importModrinthInstance(request);
     set({ instances: [instance, ...get().instances] });
     return instance;
   },

@@ -22,7 +22,8 @@ pub use java_installation::{DetectedJava, JavaInstallation, JavaInstallationRow}
 pub use mod_info::ModInfo;
 pub(crate) use modrinth::MrpackIndex;
 pub use modrinth::{
-    ModpackUpdateCheck, ModrinthProject, ModrinthSearchHit, ModrinthVersion,
+    AppliedPack, ModpackUpdateCheck, ModrinthImportRequest, ModrinthProject,
+    ModrinthSearchHit, ModrinthVersion, ModrinthVersionPreview,
 };
 pub(crate) use modrinth::{ModrinthSearchResponse, ModrinthVersionFile};
 pub use resource_usage::ResourceUsage;

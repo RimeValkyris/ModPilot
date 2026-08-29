@@ -3,8 +3,8 @@ use std::path::Path;
 use std::sync::OnceLock;
 
 use crate::models::{
-    ModrinthProject, ModrinthSearchHit, ModrinthSearchResponse, ModrinthVersion,
-    ModrinthVersionFile, MrpackIndex,
+    AppliedPack, ModrinthProject, ModrinthSearchHit, ModrinthSearchResponse, ModrinthVersion,
+    ModrinthVersionFile, ModrinthVersionPreview, MrpackIndex, ServerLoader,
 };
 use crate::packs::{apply_staged_pack, is_protected_path, join_relative, STAGING_DIR};
 
@@ -24,11 +24,24 @@ fn client() -> &'static reqwest::Client {
 }
 
 pub async fn search_projects(query: &str) -> Result<Vec<ModrinthSearchHit>, String> {
+    search_modpacks(query, "relevance").await
+}
+
+/// The list shown before anyone has typed a search term: the most
+/// downloaded modpacks. Modrinth's search endpoint doubles as a browse
+/// endpoint when the query is empty, so this is the same call with a
+/// different sort.
+pub async fn browse_projects() -> Result<Vec<ModrinthSearchHit>, String> {
+    search_modpacks("", "downloads").await
+}
+
+async fn search_modpacks(query: &str, index: &str) -> Result<Vec<ModrinthSearchHit>, String> {
     let response = client()
         .get(format!("{BASE_URL}/search"))
         .query(&[
             ("query", query),
             ("facets", r#"[["project_type:modpack"]]"#),
+            ("index", index),
             ("limit", "20"),
         ])
         .send()
@@ -129,6 +142,109 @@ pub fn pick_latest_for_instance<'a>(
     })
 }
 
+/// Downloads a version's `.mrpack` and reads its `modrinth.index.json`.
+///
+/// The archive is only a manifest of download URLs plus the pack's
+/// `overrides/` (configs, scripts) - not the mod jars - so it is small
+/// enough to fetch just to *describe* a version on the review screen.
+async fn fetch_mrpack(
+    version: &ModrinthVersion,
+) -> Result<(MrpackIndex, zip::ZipArchive<std::io::Cursor<Vec<u8>>>), String> {
+    let mrpack_file = find_mrpack_file(&version.files)
+        .ok_or_else(|| "This version doesn't have a server-installable pack file".to_string())?;
+
+    let bytes = download_bytes(&mrpack_file.url).await?;
+    let mut archive = zip::ZipArchive::new(std::io::Cursor::new(bytes))
+        .map_err(|e| format!("Failed to read downloaded pack: {e}"))?;
+
+    let index: MrpackIndex = {
+        let mut entry = archive
+            .by_name("modrinth.index.json")
+            .map_err(|_| "Downloaded pack is missing modrinth.index.json".to_string())?;
+        let mut contents = String::new();
+        entry
+            .read_to_string(&mut contents)
+            .map_err(|e| format!("Failed to read pack manifest: {e}"))?;
+        serde_json::from_str(&contents).map_err(|e| format!("Failed to parse pack manifest: {e}"))?
+    };
+
+    Ok((index, archive))
+}
+
+/// Reads the loader and its exact build out of a pack's `dependencies`.
+///
+/// A `.mrpack` names loaders differently from how ModpackPilot does
+/// (`fabric-loader`, `quilt-loader`), and a pack with no loader dependency
+/// at all is plain vanilla.
+fn loader_from_dependencies(
+    dependencies: &std::collections::HashMap<String, String>,
+) -> (ServerLoader, Option<String>) {
+    for (key, loader) in [
+        ("neoforge", ServerLoader::NeoForge),
+        ("forge", ServerLoader::Forge),
+        ("fabric-loader", ServerLoader::Fabric),
+        ("quilt-loader", ServerLoader::Quilt),
+    ] {
+        if let Some(version) = dependencies.get(key) {
+            return (loader, Some(version.clone()));
+        }
+    }
+    (ServerLoader::Vanilla, None)
+}
+
+/// Maps one of Modrinth's loader names onto a [`ServerLoader`].
+fn loader_from_name(name: &str) -> ServerLoader {
+    match name.to_ascii_lowercase().as_str() {
+        "neoforge" => ServerLoader::NeoForge,
+        "forge" => ServerLoader::Forge,
+        "fabric" => ServerLoader::Fabric,
+        "quilt" => ServerLoader::Quilt,
+        "minecraft" | "vanilla" => ServerLoader::Vanilla,
+        _ => ServerLoader::Unknown,
+    }
+}
+
+/// Describes what installing a version would do, without downloading
+/// anything. The Modrinth counterpart of `ftb::preview`.
+///
+/// See [`ModrinthVersionPreview`] for why this reads metadata rather than
+/// the `.mrpack` itself.
+pub fn preview(version: &ModrinthVersion) -> ModrinthVersionPreview {
+    let loader = version
+        .loaders
+        .iter()
+        .map(|l| loader_from_name(l))
+        .find(|l| *l != ServerLoader::Unknown)
+        .unwrap_or(ServerLoader::Unknown);
+
+    let mut warnings = Vec::new();
+    if !crate::loader::is_supported(loader) {
+        warnings.push(format!(
+            "This pack targets \"{}\", which ModpackPilot doesn't know how to install \
+             automatically. Its files will still be downloaded, but you'll have to set up the \
+             server jar yourself.",
+            version.loaders.first().map(String::as_str).unwrap_or("an unknown loader"),
+        ));
+    }
+    if find_mrpack_file(&version.files).is_none() {
+        warnings.push(
+            "This version doesn't publish a .mrpack file, so it can't be installed \
+             automatically."
+                .to_string(),
+        );
+    }
+
+    ModrinthVersionPreview {
+        version_id: version.id.clone(),
+        version_name: version.name.clone(),
+        // Modrinth lists every Minecraft version a pack is marked
+        // compatible with; the newest is the one it is actually built on.
+        minecraft_version: version.game_versions.last().cloned(),
+        loader,
+        warnings,
+    }
+}
+
 fn find_mrpack_file(files: &[ModrinthVersionFile]) -> Option<&ModrinthVersionFile> {
     files
         .iter()
@@ -164,34 +280,36 @@ async fn download_bytes(url: &str) -> Result<Vec<u8>, String> {
 /// `server/` once it is complete, so a download that dies halfway through
 /// leaves the running instance exactly as it was rather than half-updated
 /// (see `packs::apply_staged_pack`).
-pub async fn apply_update(instance_dir: &Path, version: &ModrinthVersion, world_folder_name: &str) -> Result<(), String> {
+pub async fn apply_update<F>(
+    instance_dir: &Path,
+    version: &ModrinthVersion,
+    world_folder_name: &str,
+    on_progress: F,
+) -> Result<AppliedPack, String>
+where
+    F: Fn(usize, usize),
+{
     let server_dir = instance_dir.join("server");
     let staging = instance_dir.join(STAGING_DIR);
     let _ = tokio::fs::remove_dir_all(&staging).await;
 
-    let mrpack_file = find_mrpack_file(&version.files)
-        .ok_or_else(|| "This version doesn't have a server-installable pack file".to_string())?;
-
-    let mrpack_bytes = download_bytes(&mrpack_file.url).await?;
-
-    let cursor = std::io::Cursor::new(mrpack_bytes);
-    let mut archive =
-        zip::ZipArchive::new(cursor).map_err(|e| format!("Failed to read downloaded pack: {e}"))?;
-
-    let index: MrpackIndex = {
-        let mut entry = archive
-            .by_name("modrinth.index.json")
-            .map_err(|_| "Downloaded pack is missing modrinth.index.json".to_string())?;
-        let mut contents = String::new();
-        entry
-            .read_to_string(&mut contents)
-            .map_err(|e| format!("Failed to read pack manifest: {e}"))?;
-        serde_json::from_str(&contents).map_err(|e| format!("Failed to parse pack manifest: {e}"))?
+    let (index, mut archive) = fetch_mrpack(version).await?;
+    let (loader, loader_version) = loader_from_dependencies(&index.dependencies);
+    let applied = AppliedPack {
+        loader,
+        loader_version,
+        minecraft_version: index.dependencies.get("minecraft").cloned(),
     };
+
+    let total = index.files.len();
+    let mut done = 0usize;
+    on_progress(0, total);
 
     // Download every file the manifest lists - `.mrpack` only bundles a
     // manifest of download URLs, not the mod jars themselves.
     for file in &index.files {
+        done += 1;
+        on_progress(done, total);
         let server_env = file.env.as_ref().and_then(|e| e.server.as_deref());
         if server_env == Some("unsupported") {
             continue; // client-only content (e.g. a resource pack mod)
@@ -250,7 +368,7 @@ pub async fn apply_update(instance_dir: &Path, version: &ModrinthVersion, world_
     // this one didn't gets cleaned up in there too.
     let result = apply_staged_pack(instance_dir, &server_dir, &staging, world_folder_name).await;
     let _ = tokio::fs::remove_dir_all(&staging).await;
-    result.map(|_installed| ())
+    result.map(|_installed| applied)
 }
 
 #[cfg(test)]
@@ -263,5 +381,28 @@ mod live_tests {
     async fn reaches_modrinth() {
         let hits = search_projects("create").await.expect("modrinth search");
         assert!(!hits.is_empty());
+    }
+
+    /// The browse list is what the import wizard shows before anyone types,
+    /// so an empty one would leave the picker looking broken.
+    #[tokio::test]
+    #[ignore]
+    async fn browses_modpacks_without_a_search_term() {
+        let hits = browse_projects().await.expect("modrinth browse");
+        assert!(!hits.is_empty());
+    }
+
+    /// A preview must be derivable from version metadata alone - the whole
+    /// point of not downloading the `.mrpack` to build one.
+    #[tokio::test]
+    #[ignore]
+    async fn previews_a_version_without_downloading_it() {
+        let hits = browse_projects().await.expect("modrinth browse");
+        let versions = get_project_versions(&hits[0].project_id)
+            .await
+            .expect("project versions");
+        let preview = preview(&versions[0]);
+        assert!(preview.minecraft_version.is_some(), "preview should name a Minecraft version");
+        assert_ne!(preview.loader, ServerLoader::Unknown, "preview should name a loader");
     }
 }

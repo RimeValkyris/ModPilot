@@ -94,4 +94,57 @@ pub(crate) struct MrpackEnv {
 #[derive(Debug, Clone, Deserialize)]
 pub(crate) struct MrpackIndex {
     pub files: Vec<MrpackFile>,
+    /// Maps a component to the exact build the pack needs, e.g.
+    /// `{"minecraft": "1.20.1", "neoforge": "47.1.99"}`. This is where a
+    /// `.mrpack` says which loader to install - the equivalent of an FTB
+    /// version's `targets`.
+    #[serde(default)]
+    pub dependencies: std::collections::HashMap<String, String>,
+}
+
+/// What installing a `.mrpack` version would do, shown for review before
+/// anything is written. The Modrinth counterpart of
+/// [`crate::models::FtbVersionPreview`].
+///
+/// Deliberately built from Modrinth's *version metadata* alone, with no
+/// download: a `.mrpack` bundles the pack's whole `overrides/` tree, so it
+/// runs to tens or hundreds of megabytes on a large pack, and fetching one
+/// just to describe it - then fetching it again to install - would make
+/// picking a version feel like installing one. The file count and download
+/// size an FTB preview shows are unknowable without that archive, so they
+/// are reported live during the install instead.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModrinthVersionPreview {
+    pub version_id: String,
+    pub version_name: String,
+    pub minecraft_version: Option<String>,
+    pub loader: crate::models::ServerLoader,
+    pub warnings: Vec<String>,
+}
+
+/// The loader a `.mrpack` turned out to need, read from its manifest while
+/// installing.
+///
+/// This is the authoritative source for the loader's exact build: Modrinth's
+/// version metadata names the loader ("neoforge") but never which build, and
+/// the loader's server can't be installed without one.
+#[derive(Debug, Clone)]
+pub struct AppliedPack {
+    pub loader: crate::models::ServerLoader,
+    pub loader_version: Option<String>,
+    pub minecraft_version: Option<String>,
+}
+
+/// A request to install a Modrinth modpack version as a new instance.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModrinthImportRequest {
+    pub project_id: String,
+    pub version_id: String,
+    pub name: String,
+    pub min_ram_mb: Option<i64>,
+    pub max_ram_mb: Option<i64>,
+    #[serde(default)]
+    pub overwrite: bool,
 }

@@ -12,6 +12,7 @@
 //! installed separately, which is what [`crate::loader`] is for. That split
 //! is exactly what FTB's own `serverinstall_*.exe` does internally.
 
+use std::collections::HashSet;
 use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, OnceLock};
@@ -53,9 +54,42 @@ fn client() -> &'static reqwest::Client {
 /// to load is dropped rather than failing the whole search - one unlisted
 /// or broken pack shouldn't blank the results.
 pub async fn search_packs(query: &str) -> Result<Vec<FtbPack>, String> {
+    let ids = fetch_pack_ids(format!("{BASE_URL}/modpack/search/20?term={}", urlencode(query))).await?;
+    fetch_packs(ids).await
+}
+
+/// The list shown before anyone has typed a search term.
+///
+/// FTB has no single "browse" endpoint, so this stitches two together:
+/// its editorially featured packs first, then the most-installed ones.
+/// A pack that appears in both is only shown once, at its earlier
+/// position.
+pub async fn browse_packs() -> Result<Vec<FtbPack>, String> {
+    let featured = fetch_pack_ids(format!("{BASE_URL}/modpack/featured/10"))
+        .await
+        .unwrap_or_default();
+    let popular = fetch_pack_ids(format!("{BASE_URL}/modpack/popular/installs/20"))
+        .await
+        .unwrap_or_default();
+
+    let mut seen = HashSet::new();
+    let ids: Vec<i64> = featured
+        .into_iter()
+        .chain(popular)
+        .filter(|id| seen.insert(*id))
+        .take(24)
+        .collect();
+
+    if ids.is_empty() {
+        return Err("Failed to load modpacks from FTB".to_string());
+    }
+    fetch_packs(ids).await
+}
+
+/// FTB's list endpoints all answer with bare pack IDs under `packs`.
+async fn fetch_pack_ids(url: String) -> Result<Vec<i64>, String> {
     let response = client()
-        .get(format!("{BASE_URL}/modpack/search/20"))
-        .query(&[("term", query)])
+        .get(url)
         .send()
         .await
         .map_err(|e| format!("Failed to reach FTB: {e}"))?
@@ -66,24 +100,45 @@ pub async fn search_packs(query: &str) -> Result<Vec<FtbPack>, String> {
         .json()
         .await
         .map_err(|e| format!("Failed to parse FTB's response: {e}"))?;
+    Ok(parsed.packs)
+}
 
+/// Turns bare pack IDs into displayable packs, concurrently.
+///
+/// A pack that fails to load is dropped rather than failing the whole
+/// list - one unlisted or broken pack shouldn't blank the results. The
+/// caller's ID order is preserved: it carries FTB's own relevance or
+/// popularity ranking, which a `JoinSet`'s completion order would lose.
+async fn fetch_packs(ids: Vec<i64>) -> Result<Vec<FtbPack>, String> {
     let mut tasks = tokio::task::JoinSet::new();
-    for id in parsed.packs {
-        tasks.spawn(async move { get_pack(id).await.ok() });
+    for (rank, id) in ids.into_iter().enumerate() {
+        tasks.spawn(async move { get_pack(id).await.ok().map(|pack| (rank, pack)) });
     }
 
     let mut packs = Vec::new();
     while let Some(result) = tasks.join_next().await {
-        if let Ok(Some(pack)) = result {
-            packs.push(pack);
+        if let Ok(Some(ranked)) = result {
+            packs.push(ranked);
         }
     }
-    // A JoinSet completes out of order, so FTB's own relevance ranking is
-    // already lost by this point - sort by name for a stable, predictable
-    // list instead of whatever order the network happened to return.
-    packs.sort_by_key(|p| p.name.to_lowercase());
+    packs.sort_by_key(|(rank, _)| *rank);
 
-    Ok(packs)
+    Ok(packs.into_iter().map(|(_, pack)| pack).collect())
+}
+
+/// Percent-encodes a search term for a query string. Pulling in a crate
+/// for this would be overkill - a modpack name only ever needs the
+/// unreserved set left alone.
+fn urlencode(value: &str) -> String {
+    value
+        .bytes()
+        .map(|b| match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                (b as char).to_string()
+            }
+            _ => format!("%{b:02X}"),
+        })
+        .collect()
 }
 
 fn not_found_message(what: &str) -> String {
@@ -379,6 +434,17 @@ where
 #[cfg(test)]
 mod live_tests {
     use super::*;
+
+
+    /// The browse list is what the import wizard shows before anyone types,
+    /// so an empty one would leave the picker looking broken.
+    #[tokio::test]
+    #[ignore]
+    async fn browses_packs_without_a_search_term() {
+        let packs = browse_packs().await.expect("ftb browse");
+        assert!(!packs.is_empty());
+        assert!(packs.iter().any(|p| p.icon_url.is_some()), "packs should resolve icons");
+    }
 
     /// FTB Presents Direwolf20 1.21, and a version of it known to exist.
     const PACK_ID: i64 = 126;
