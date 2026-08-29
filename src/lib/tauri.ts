@@ -13,7 +13,13 @@ import type { JavaInstallation } from "@/types/java";
 import type { ResourceUsage } from "@/types/monitor";
 import type { WorldBackup } from "@/types/backup";
 import type { ModInfo } from "@/types/mod";
-import type { ModpackUpdateCheck, ModrinthSearchHit, ModrinthVersion } from "@/types/modrinth";
+import type {
+  ModpackUpdateCheck,
+  ModrinthImportRequest,
+  ModrinthSearchHit,
+  ModrinthVersion,
+  ModrinthVersionPreview,
+} from "@/types/modrinth";
 import type {
   FtbImportRequest,
   FtbPack,
@@ -184,6 +190,7 @@ export const api = {
 
   searchFtbPacks: (query: string) => invoke<FtbPack[]>("search_ftb_packs", { query }),
 
+  browseFtbPacks: () => invoke<FtbPack[]>("browse_ftb_packs"),
   getFtbPack: (packId: number) => invoke<FtbPack>("get_ftb_pack", { packId }),
 
   analyzeFtbVersion: (packId: number, versionId: number) =>
@@ -207,6 +214,17 @@ export const api = {
 
   searchModrinthProjects: (query: string) =>
     invoke<ModrinthSearchHit[]>("search_modrinth_projects", { query }),
+
+  browseModrinthPacks: () => invoke<ModrinthSearchHit[]>("browse_modrinth_packs"),
+
+  listModrinthProjectVersions: (projectId: string) =>
+    invoke<ModrinthVersion[]>("list_modrinth_project_versions", { projectId }),
+
+  analyzeModrinthVersion: (versionId: string) =>
+    invoke<ModrinthVersionPreview>("analyze_modrinth_version", { versionId }),
+
+  importModrinthInstance: (request: ModrinthImportRequest) =>
+    invoke<Instance>("import_modrinth_instance", { request }),
 
   linkModrinthProject: (id: string, projectId: string) =>
     invoke<Instance>("link_modrinth_project", { id, projectId }),

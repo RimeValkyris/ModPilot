@@ -26,6 +26,12 @@ pub async fn search_ftb_packs(query: String) -> Result<Vec<FtbPack>, String> {
     ftb::search_packs(query.trim()).await
 }
 
+/// The list of modpacks shown before anyone has typed a search term:
+/// FTB's featured packs, then its most-installed ones.
+#[tauri::command]
+pub async fn browse_ftb_packs() -> Result<Vec<FtbPack>, String> {
+    ftb::browse_packs().await
+}
 /// Loads one pack, including its version list (newest first, which is not
 /// the order FTB returns them in).
 #[tauri::command]
