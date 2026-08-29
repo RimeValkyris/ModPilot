@@ -42,6 +42,11 @@ export interface Instance {
   modrinthProjectId: string | null;
   modrinthProjectTitle: string | null;
   modrinthVersionId: string | null;
+  /** Set when this instance came from (or was linked to) an FTB modpack.
+   * FTB keys packs and versions by integer ID rather than slug. */
+  ftbPackId: number | null;
+  ftbPackName: string | null;
+  ftbVersionId: number | null;
   /** "every:6" | "daily:04:00" | null (disabled). */
   restartSchedule: string | null;
   backupSchedule: string | null;

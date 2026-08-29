@@ -1,8 +1,10 @@
 mod commands;
 mod database;
 mod filesystem;
+mod ftb;
 mod importer;
 mod java;
+mod loader;
 mod logging;
 mod models;
 mod modrinth;
@@ -227,6 +229,15 @@ pub fn run() {
             commands::modrinth::list_modpack_versions,
             commands::modrinth::apply_modpack_update,
             commands::modrinth::set_update_policy,
+            commands::ftb::search_ftb_packs,
+            commands::ftb::get_ftb_pack,
+            commands::ftb::analyze_ftb_version,
+            commands::ftb::import_ftb_instance,
+            commands::ftb::link_ftb_pack,
+            commands::ftb::unlink_ftb_pack,
+            commands::ftb::check_ftb_update,
+            commands::ftb::list_ftb_versions,
+            commands::ftb::apply_ftb_update,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

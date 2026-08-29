@@ -1,4 +1,3 @@
-use std::collections::HashSet;
 use std::io::Read;
 use std::path::Path;
 use std::sync::OnceLock;
@@ -7,7 +6,7 @@ use crate::models::{
     ModrinthProject, ModrinthSearchHit, ModrinthSearchResponse, ModrinthVersion,
     ModrinthVersionFile, MrpackIndex,
 };
-use crate::packs::{is_protected_path, join_relative, prune_stale, write_pack_manifest};
+use crate::packs::{apply_staged_pack, is_protected_path, join_relative, STAGING_DIR};
 
 const BASE_URL: &str = "https://api.modrinth.com/v2";
 
@@ -154,14 +153,21 @@ async fn download_bytes(url: &str) -> Result<Vec<u8>, String> {
 
 
 /// Downloads and applies a Modrinth version's `.mrpack` to an instance:
-/// every mod listed in `modrinth.index.json` gets downloaded into place,
-/// and the pack's `overrides`/`server-overrides` are extracted on top -
-/// except anything in `is_protected_path`. Afterwards, any file the
-/// *previous* update installed that this one no longer lists gets removed
-/// (see `PACK_MANIFEST_FILE`) - a mod the operator added by hand was never
+/// every mod listed in `modrinth.index.json` gets downloaded, and the
+/// pack's `overrides`/`server-overrides` are extracted on top - except
+/// anything in `is_protected_path`. Afterwards, any file the *previous*
+/// update installed that this one no longer lists gets removed (see
+/// `PACK_MANIFEST_FILE`) - a mod the operator added by hand was never
 /// recorded there, so it's never touched.
+///
+/// The whole pack is assembled in a staging directory and only moved into
+/// `server/` once it is complete, so a download that dies halfway through
+/// leaves the running instance exactly as it was rather than half-updated
+/// (see `packs::apply_staged_pack`).
 pub async fn apply_update(instance_dir: &Path, version: &ModrinthVersion, world_folder_name: &str) -> Result<(), String> {
     let server_dir = instance_dir.join("server");
+    let staging = instance_dir.join(STAGING_DIR);
+    let _ = tokio::fs::remove_dir_all(&staging).await;
 
     let mrpack_file = find_mrpack_file(&version.files)
         .ok_or_else(|| "This version doesn't have a server-installable pack file".to_string())?;
@@ -183,8 +189,6 @@ pub async fn apply_update(instance_dir: &Path, version: &ModrinthVersion, world_
         serde_json::from_str(&contents).map_err(|e| format!("Failed to parse pack manifest: {e}"))?
     };
 
-    let mut installed: HashSet<String> = HashSet::new();
-
     // Download every file the manifest lists - `.mrpack` only bundles a
     // manifest of download URLs, not the mod jars themselves.
     for file in &index.files {
@@ -200,7 +204,7 @@ pub async fn apply_update(instance_dir: &Path, version: &ModrinthVersion, world_
             continue;
         };
         let bytes = download_bytes(url).await?;
-        let dest = join_relative(&server_dir, &relative);
+        let dest = join_relative(&staging, &relative);
         if let Some(parent) = dest.parent() {
             tokio::fs::create_dir_all(parent)
                 .await
@@ -209,7 +213,6 @@ pub async fn apply_update(instance_dir: &Path, version: &ModrinthVersion, world_
         tokio::fs::write(&dest, bytes)
             .await
             .map_err(|e| format!("Failed to write {}: {e}", dest.display()))?;
-        installed.insert(relative);
     }
 
     // Extract `overrides/`, then `server-overrides/` on top of it (the
@@ -231,7 +234,7 @@ pub async fn apply_update(instance_dir: &Path, version: &ModrinthVersion, world_
                 continue;
             }
             let relative = relative.to_string();
-            let dest = join_relative(&server_dir, &relative);
+            let dest = join_relative(&staging, &relative);
             if let Some(parent) = dest.parent() {
                 std::fs::create_dir_all(parent)
                     .map_err(|e| format!("Failed to create {}: {e}", parent.display()))?;
@@ -240,17 +243,25 @@ pub async fn apply_update(instance_dir: &Path, version: &ModrinthVersion, world_
                 .map_err(|e| format!("Failed to write {}: {e}", dest.display()))?;
             std::io::copy(&mut entry, &mut out)
                 .map_err(|e| format!("Failed to write {}: {e}", dest.display()))?;
-            installed.insert(relative);
         }
     }
 
-    // Anything the previous update installed that this one didn't was
-    // removed from the pack - clean it up. Best-effort: a failed removal
-    // (e.g. the server has the jar open) shouldn't fail the whole update.
-    prune_stale(instance_dir, &server_dir, &installed).await;
-
-    write_pack_manifest(instance_dir, &installed).await?;
-
-    Ok(())
+    // Commit the staged pack. Anything the previous update installed that
+    // this one didn't gets cleaned up in there too.
+    let result = apply_staged_pack(instance_dir, &server_dir, &staging, world_folder_name).await;
+    let _ = tokio::fs::remove_dir_all(&staging).await;
+    result.map(|_installed| ())
 }
 
+#[cfg(test)]
+mod live_tests {
+    use super::*;
+
+    /// Ignored by default - see `ftb::live_tests` for why.
+    #[tokio::test]
+    #[ignore]
+    async fn reaches_modrinth() {
+        let hits = search_projects("create").await.expect("modrinth search");
+        assert!(!hits.is_empty());
+    }
+}

@@ -17,6 +17,7 @@ const INSTANCE_COLUMNS: &str = "id, name, minecraft_version, loader, loader_vers
      min_ram_mb, max_ram_mb, server_directory, server_jar, launch_mode, jvm_args, server_args,
      status, auto_start, auto_restart, created_at, last_launched_at,
      modrinth_project_id, modrinth_project_title, modrinth_version_id,
+     ftb_pack_id, ftb_pack_name, ftb_version_id,
      restart_schedule, backup_schedule, backup_keep_last, update_policy";
 
 /// Lists every server instance ModpackPilot knows about, newest first.
@@ -105,6 +106,9 @@ pub async fn create_instance(
         modrinth_project_id: None,
         modrinth_project_title: None,
         modrinth_version_id: None,
+        ftb_pack_id: None,
+        ftb_pack_name: None,
+        ftb_version_id: None,
         restart_schedule: None,
         backup_schedule: None,
         backup_keep_last: 0,
@@ -198,6 +202,11 @@ pub async fn duplicate_instance(
         modrinth_project_id: source.modrinth_project_id.clone(),
         modrinth_project_title: source.modrinth_project_title.clone(),
         modrinth_version_id: source.modrinth_version_id.clone(),
+        // Same reasoning for FTB: a clone is the same pack at the same
+        // version, so it stays updatable against it.
+        ftb_pack_id: source.ftb_pack_id,
+        ftb_pack_name: source.ftb_pack_name.clone(),
+        ftb_version_id: source.ftb_version_id,
         restart_schedule: source.restart_schedule.clone(),
         backup_schedule: source.backup_schedule.clone(),
         backup_keep_last: source.backup_keep_last,
@@ -416,8 +425,9 @@ pub(crate) async fn insert_instance(
                                  min_ram_mb, max_ram_mb, server_directory, server_jar, launch_mode, jvm_args, server_args,
                                  status, auto_start, auto_restart, created_at, last_launched_at,
                                  modrinth_project_id, modrinth_project_title, modrinth_version_id,
+                                 ftb_pack_id, ftb_pack_name, ftb_version_id,
                                  restart_schedule, backup_schedule, backup_keep_last, update_policy)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&instance.id)
     .bind(&instance.name)
@@ -440,6 +450,9 @@ pub(crate) async fn insert_instance(
     .bind(&instance.modrinth_project_id)
     .bind(&instance.modrinth_project_title)
     .bind(&instance.modrinth_version_id)
+    .bind(instance.ftb_pack_id)
+    .bind(&instance.ftb_pack_name)
+    .bind(instance.ftb_version_id)
     .bind(&instance.restart_schedule)
     .bind(&instance.backup_schedule)
     .bind(instance.backup_keep_last)

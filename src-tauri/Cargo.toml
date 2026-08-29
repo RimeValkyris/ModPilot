@@ -45,11 +45,24 @@ zip = { version = "2", default-features = false, features = ["deflate", "bzip2"]
 regex = "1"
 walkdir = "2"
 base64 = "0.22"
+# FTB publishes a SHA-1 per pack file; verifying them is what keeps a
+# truncated download from becoming a corrupt jar that only fails at runtime.
+sha1 = "0.10"
 sysinfo = "0.32"
-# rustls-tls, not the default native-tls: keeps this pure-Rust instead of
+# rustls, not the default native-tls: keeps this pure-Rust instead of
 # needing OpenSSL available at build time, which is one less thing to
 # install on a fresh Windows dev machine.
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+#
+# ...but with the *native* root store rather than the bundled webpki roots.
+# Antivirus TLS inspection (AVG, ESET, Kaspersky) and corporate proxies
+# terminate HTTPS with their own root CA, which is installed in the OS
+# trust store and nowhere else - against webpki-roots every request fails
+# with an unhelpful "error sending request", taking Modrinth, FTB, and
+# every mod download down with it on machines that are otherwise online.
+reqwest = { version = "0.12", default-features = false, features = [
+    "json",
+    "rustls-tls-native-roots",
+] }
 
 # The default release profile leaves real performance on the table for a
 # shipped desktop binary: no LTO, one codegen unit per crate (worse cross-

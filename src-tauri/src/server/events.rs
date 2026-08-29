@@ -27,6 +27,11 @@ pub const RESOURCE_ALERT_EVENT: &str = "instance-resource-alert";
 /// see `server::autoupdate`.
 pub const MODPACK_UPDATE_EVENT: &str = "instance-modpack-update-available";
 
+/// Emitted while an FTB modpack is being installed. Unlike an mrpack's
+/// few dozen files, an FTB pack routinely downloads 2000+, so the install
+/// reports progress rather than blocking silently for several minutes.
+pub const FTB_INSTALL_PROGRESS_EVENT: &str = "ftb-install-progress";
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StatusChangedPayload {
@@ -61,6 +66,18 @@ pub struct ResourceAlertPayload {
     pub instance_id: String,
     pub kind: &'static str,
     pub message: String,
+}
+
+/// `phase` is "downloading" | "installing-loader" | "done" - the loader
+/// step has no per-file progress of its own, so it carries `detail` text
+/// instead of a moving count.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FtbInstallProgressPayload {
+    pub phase: String,
+    pub done: usize,
+    pub total: usize,
+    pub detail: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]

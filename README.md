@@ -29,6 +29,10 @@ Built as a side/hobby or what ever you call this project and shared as open sour
   loader (Forge / NeoForge / Fabric / Quilt / Vanilla), server JAR, mods,
   config, world folder, and start scripts on a best-effort basis before
   anything is copied.
+- **Install an FTB modpack** directly: search Feed the Beast's public packs,
+  pick a version, and ModpackPilot downloads the server files (verifying
+  each one's checksum) and runs the Forge/NeoForge/Fabric server install
+  itself - no `serverinstall_*.exe` needed.
 - **Create** a new empty instance, or **duplicate** an existing one (server
   files and settings, not logs/backups) and configure it manually.
 - **Launch, stop, restart, and force-stop** the server as a real child
@@ -47,9 +51,11 @@ Built as a side/hobby or what ever you call this project and shared as open sour
   with restore and delete.
 - **Mods management**: list, enable/disable (renames to `.jar.disabled`
   rather than deleting), and remove mods without touching the filesystem by hand.
-- **Modpack updates**: link an instance to its Modrinth project, then
-  check for and one-click install newer versions - the world, whitelist/ops/bans,
-  and `server.properties` are always left untouched.
+- **Modpack updates**: link an instance to its Modrinth project or FTB
+  modpack, then check for and one-click install newer versions - the world,
+  whitelist/ops/bans, and `server.properties` are always left untouched. An
+  FTB update also reinstalls the mod loader when the pack moves to a new
+  build of it.
 - **Whitelist / operators / banned players**: edit `whitelist.json`,
   `ops.json`, and `banned-players.json` from a form instead of hand-editing JSON.
 - **Resource monitoring**: CPU%, memory, and uptime for each running

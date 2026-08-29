@@ -11,6 +11,7 @@ mod scheduler;
 pub use alerts::{spawn as spawn_alerts, AlertTracker};
 pub use autoupdate::UpdateCheckTracker;
 pub use crash_tracker::CrashTracker;
+pub use events::{FtbInstallProgressPayload, FTB_INSTALL_PROGRESS_EVENT};
 pub use manager::{ProcessManager, RunningProcess};
 pub use monitor::ResourceMonitor;
 pub use players::PlayerTracker;

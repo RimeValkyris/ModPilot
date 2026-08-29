@@ -122,6 +122,9 @@ pub async fn import_instance(
         modrinth_project_id: None,
         modrinth_project_title: None,
         modrinth_version_id: None,
+        ftb_pack_id: None,
+        ftb_pack_name: None,
+        ftb_version_id: None,
         restart_schedule: None,
         backup_schedule: None,
         backup_keep_last: 0,
@@ -171,19 +174,12 @@ pub async fn update_instance_from_source(
     let server_dir = instance_dir.join("server");
     let world_folder_name = super::diagnostics::detect_world_folder_name(&server_dir).await;
 
-    // Back up before touching anything - but only if there's actually a
-    // world to lose. A never-started instance has none, and failing the
-    // update over that would be nonsense.
-    if server_dir.join(&world_folder_name).is_dir() {
-        super::backup::create_world_backup(state.clone(), id.clone())
-            .await
-            .map_err(|e| format!("Aborted - couldn't back up the world first: {e}"))?;
-    }
+    // Back up before touching anything - the same safety net every other
+    // update path gets.
+    super::modrinth::back_up_world_before_update(&state, &id, &server_dir, &world_folder_name)
+        .await?;
 
-    // Stage into the instance folder rather than a system temp dir so the
-    // copy stays on the same volume (a multi-GB pack crossing drives is
-    // slow) and any leftovers are obvious and self-cleaning.
-    let staging = instance_dir.join(".pack-staging");
+    let staging = instance_dir.join(crate::packs::STAGING_DIR);
     let _ = tokio::fs::remove_dir_all(&staging).await;
     tokio::fs::create_dir_all(&staging)
         .await

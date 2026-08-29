@@ -1,4 +1,5 @@
 mod backup;
+mod ftb;
 mod import;
 mod instance;
 mod java_installation;
@@ -7,6 +8,11 @@ mod modrinth;
 mod resource_usage;
 
 pub use backup::WorldBackup;
+pub use ftb::{
+    FtbImportRequest, FtbPack, FtbTarget, FtbUpdateCheck, FtbVersionManifest, FtbVersionPreview,
+    FtbVersionSummary,
+};
+pub(crate) use ftb::FtbSearchResponse;
 pub use import::{DetectedServerInfo, ImportInstanceRequest, ImportSource};
 pub use instance::{
     CreateInstanceRequest, Instance, InstanceRow, ServerLoader, ServerStatus,
