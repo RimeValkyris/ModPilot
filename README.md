@@ -4,7 +4,7 @@ A native desktop launcher and manager for Minecraft modpack servers. Import
 existing server files or create one from scratch, then configure, launch,
 monitor, and manage it.
 
-Built as a side/hobby or what ever you call this project and shared as open source, Im tired boss. Just do what ever the hell you can improve this shitty app. This is also built using AI Assisted coding, It can be shitty sometimes, it needs human intervention.
+Built as a side/hobby or what ever you call this project and shared as open source, Im tired boss. Just do what ever the hell you can improve this shitty app. This is also built using 50/50 AI Assisted coding (Mix of Human Code and AI Code), It can be shitty sometimes, it needs human intervention.
 
 <!-- Tech stack -->
 ![Tauri](https://img.shields.io/badge/Tauri-2-24C8DB?logo=tauri&logoColor=white)
