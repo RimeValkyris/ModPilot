@@ -1,4 +1,4 @@
-# ModpackPilot
+# ModpackPilot: A Modpack Server Launcher that simplifies PC-Server Hosting
 
 A native desktop launcher and manager for Minecraft modpack servers. Import
 existing server files or create one from scratch, then configure, launch,
