@@ -262,9 +262,12 @@ pub async fn spawn_server_process(
         // refuses to run while an entry for this id still exists, so a
         // crash-triggered auto-restart would otherwise always fail.
         app.state::<AppState>().processes.remove(&instance_id).await;
-        // A stopped server has no players; drop the roster so the UI can't
-        // show a stale one.
+        // A stopped server has no players, no tick rate, and may come back
+        // on a different port if the operator edited server.properties in
+        // the meantime - drop all three so the UI can't show a stale one.
         app.state::<AppState>().players.clear(&instance_id).await;
+        app.state::<AppState>().tps.clear(&instance_id).await;
+        app.state::<AppState>().ports.invalidate(&instance_id).await;
 
         set_status(&app, &db, &instance_id, final_status).await;
 
@@ -390,14 +393,29 @@ fn spawn_log_reader<R>(
                         let _ = f.write_all(entry.as_bytes()).await;
                     }
 
-                    let _ = app.emit(
-                        LOG_EVENT,
-                        LogLinePayload {
-                            instance_id: instance_id.clone(),
-                            stream: stream_name,
-                            line: line.clone(),
-                        },
-                    );
+                    // A TPS report is an answer to a question the poller
+                    // asked, not to one the operator did, so it's fed to the
+                    // tracker and swallowed rather than emitted - otherwise
+                    // the console fills with replies nobody requested. It
+                    // still reaches the log files above, which should record
+                    // everything the server actually printed.
+                    let is_tps_report = if stream_name == "stdout" {
+                        let state = app.state::<AppState>();
+                        state.tps.observe(&instance_id, &line).await
+                    } else {
+                        false
+                    };
+
+                    if !is_tps_report {
+                        let _ = app.emit(
+                            LOG_EVENT,
+                            LogLinePayload {
+                                instance_id: instance_id.clone(),
+                                stream: stream_name,
+                                line: line.clone(),
+                            },
+                        );
+                    }
 
                     if stream_name == "stdout" && line.contains(STARTUP_COMPLETE_MARKER) {
                         reached_running.store(true, Ordering::Relaxed);

@@ -7,6 +7,7 @@ mod monitor;
 mod players;
 mod process;
 mod scheduler;
+mod stats;
 
 pub use alerts::{spawn as spawn_alerts, AlertTracker};
 pub use autoupdate::UpdateCheckTracker;
@@ -15,5 +16,6 @@ pub use events::{FtbInstallProgressPayload, FTB_INSTALL_PROGRESS_EVENT};
 pub use manager::{ProcessManager, RunningProcess};
 pub use monitor::ResourceMonitor;
 pub use players::PlayerTracker;
+pub use stats::{ping_server, spawn_tps_poller, DiskSampler, PortCache, TpsTracker};
 pub use scheduler::{spawn as spawn_scheduler, Schedule, ScheduleTracker};
 pub use process::{set_status, spawn_server_process};

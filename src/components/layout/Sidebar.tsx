@@ -1,6 +1,7 @@
 import { NavLink } from "react-router-dom";
-import { LayoutDashboard, Server, Coffee, Settings, Zap } from "lucide-react";
+import { LayoutDashboard, Server, Coffee, Settings } from "lucide-react";
 import { cn } from "@/lib/utils";
+import umaCube from "@/assets/uma-cube.png";
 
 const navItems = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard, end: true },
@@ -13,9 +14,11 @@ export function Sidebar() {
   return (
     <aside className="flex h-full w-60 shrink-0 flex-col bg-sidebar text-sidebar-foreground">
       <div className="flex h-16 items-center gap-2.5 px-5">
-        <div className="flex size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-sm shadow-primary/30">
-          <Zap className="size-4.5 fill-current" strokeWidth={0} />
-        </div>
+        <img
+          src={umaCube}
+          alt=""
+          className="size-8 shrink-0 rounded-lg object-cover shadow-sm"
+        />
         <span className="text-[15px] font-semibold tracking-tight">ModpackPilot</span>
       </div>
 

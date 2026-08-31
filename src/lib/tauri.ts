@@ -10,7 +10,7 @@ import type {
   ImportSource,
 } from "@/types/import";
 import type { JavaInstallation } from "@/types/java";
-import type { ResourceUsage } from "@/types/monitor";
+import type { DiskUsage, ResourceUsage } from "@/types/monitor";
 import type { WorldBackup } from "@/types/backup";
 import type { ModInfo } from "@/types/mod";
 import type {
@@ -83,6 +83,7 @@ export const api = {
   getAllResourceUsage: () => invoke<Record<string, ResourceUsage>>("get_all_resource_usage"),
 
   getSystemMemoryMb: () => invoke<number>("get_system_memory_mb"),
+  getDiskUsage: () => invoke<DiskUsage | null>("get_disk_usage"),
 
   listOnlinePlayers: (id: string) => invoke<string[]>("list_online_players", { id }),
 

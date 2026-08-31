@@ -1,0 +1,42 @@
+ModpackPilot
+Copyright (c) 2026 ModpackPilot contributors
+
+This product is licensed under the MIT License. See the LICENSE file.
+
+------------------------------------------------------------------------------
+NOT AN OFFICIAL MINECRAFT PRODUCT.
+NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR MICROSOFT.
+------------------------------------------------------------------------------
+
+ModpackPilot is an independent tool. It does not distribute Minecraft, mods,
+modpacks, or any other third-party content. Files are downloaded to the user's
+own machine, at the user's instruction, directly from the official servers of
+the services that publish them. No content is mirrored, proxied, cached, or
+re-served by this project.
+
+ModpackPilot is not affiliated with, endorsed by, or sponsored by any of the
+following. Their names appear only descriptively, to identify the services this
+software interoperates with:
+
+  Mojang AB / Microsoft Corporation  -  "Minecraft"
+  Feed the Beast Limited             -  "Feed the Beast", "FTB", "StoneBlock"
+  Rinth, Inc.                        -  "Modrinth"
+  MinecraftForge, NeoForged, FabricMC
+
+All trademarks are the property of their respective owners. No third-party logo
+or brand asset is bundled with or used by this software.
+
+Content installed through ModpackPilot remains governed by the licence and terms
+of whoever published it, including:
+
+  Feed the Beast Modpack/Mods Policy
+    https://www.feed-the-beast.com/policies/modpacks-mods-policy
+  Modrinth Terms of Use
+    https://modrinth.com/legal/terms
+  Minecraft End User Licence Agreement
+    https://aka.ms/MinecraftEULA
+
+Users are responsible for complying with those terms and with the individual
+licence of every mod they install.
+
+See THIRD_PARTY.md for the full statement.

@@ -49,6 +49,9 @@ base64 = "0.22"
 # truncated download from becoming a corrupt jar that only fails at runtime.
 sha1 = "0.10"
 sysinfo = "0.32"
+# Just for `join_all`: the dashboard poll enriches every running instance
+# concurrently, and a serialized ping timeout would stack polls.
+futures = { version = "0.3", default-features = false, features = ["std", "async-await"] }
 # rustls, not the default native-tls: keeps this pure-Rust instead of
 # needing OpenSSL available at build time, which is one less thing to
 # install on a fresh Windows dev machine.

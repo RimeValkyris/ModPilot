@@ -13,7 +13,7 @@ use crate::models::{
 };
 use crate::AppState;
 
-const INSTANCE_COLUMNS: &str = "id, name, minecraft_version, loader, loader_version, java_installation_id,
+pub(crate) const INSTANCE_COLUMNS: &str = "id, name, minecraft_version, loader, loader_version, java_installation_id,
      min_ram_mb, max_ram_mb, server_directory, server_jar, launch_mode, jvm_args, server_args,
      status, auto_start, auto_restart, created_at, last_launched_at,
      modrinth_project_id, modrinth_project_title, modrinth_version_id,

@@ -24,6 +24,9 @@ pub struct AppState {
     pub crash_tracker: server::CrashTracker,
     pub schedules: server::ScheduleTracker,
     pub players: server::PlayerTracker,
+    pub tps: server::TpsTracker,
+    pub disks: server::DiskSampler,
+    pub ports: server::PortCache,
     pub alerts: server::AlertTracker,
     pub update_checks: server::UpdateCheckTracker,
 }
@@ -96,6 +99,9 @@ pub fn run() {
                 crash_tracker: server::CrashTracker::new(),
                 schedules: server::ScheduleTracker::new(),
                 players: server::PlayerTracker::new(),
+                tps: server::TpsTracker::new(),
+                disks: server::DiskSampler::new(),
+                ports: server::PortCache::new(),
                 alerts: server::AlertTracker::new(),
                 update_checks: server::UpdateCheckTracker::new(),
             });
@@ -157,6 +163,7 @@ pub fn run() {
             // Automated restarts / backups (see `server::scheduler`).
             server::spawn_scheduler(handle.clone());
             server::spawn_alerts(handle.clone());
+            server::spawn_tps_poller(handle.clone());
 
             setup_tray(app)?;
 
@@ -190,6 +197,7 @@ pub fn run() {
             commands::monitor::get_resource_usage,
             commands::monitor::get_all_resource_usage,
             commands::monitor::get_system_memory_mb,
+            commands::monitor::get_disk_usage,
             commands::monitor::list_online_players,
             commands::diagnostics::get_app_logs_dir,
             commands::diagnostics::open_managed_folder,

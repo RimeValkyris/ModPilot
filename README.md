@@ -155,6 +155,39 @@ src-tauri/migrations/      SQL schema migrations
 
 ModpackPilot is under active incremental development, It's either I am going to have an Idea or not.
 
+## Disclaimer
+
+**NOT AN OFFICIAL MINECRAFT PRODUCT. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR
+MICROSOFT.**
+
+ModpackPilot is an independent, unaffiliated tool. It is not endorsed by, sponsored by,
+or connected to Mojang, Microsoft, Feed the Beast Limited, or Rinth, Inc. (Modrinth).
+Those names are used here only descriptively, to say which services ModpackPilot
+interoperates with.
+
+ModpackPilot **does not distribute Minecraft, mods, or modpacks.** It contains no
+third-party game content and hosts, mirrors, and proxies nothing. When you ask it to
+install a pack, the copy of ModpackPilot on your own machine downloads the files directly
+from the official servers of the service that publishes them, using the URLs that service
+itself publishes — exactly as your browser would if you clicked the download link.
+
+Everything ModpackPilot installs stays governed by the licence and terms of whoever
+published it, and **you are responsible for complying with them**:
+
+- [Feed the Beast Modpack/Mods Policy](https://www.feed-the-beast.com/policies/modpacks-mods-policy)
+  — note that FTB's download licence is non-transferable, grants no right to sublicense,
+  and is limited to personal use
+- [Modrinth Terms of Use](https://modrinth.com/legal/terms), plus each project's own licence
+- [Minecraft EULA](https://aka.ms/MinecraftEULA)
+- The individual licence of every mod in a pack, which may be more restrictive than the
+  pack's own terms
+
+See [THIRD_PARTY.md](THIRD_PARTY.md) for the full statement, and [NOTICE](NOTICE) for the
+condensed one.
+
 ## License
 
 [MIT](LICENSE) — do what you like with it, just keep the copyright notice.
+
+The MIT licence covers **ModpackPilot's own source code only**. It does not extend to any
+Minecraft content, mod, or modpack that ModpackPilot downloads for you.

@@ -13,12 +13,12 @@ import { InstanceSettingsForm } from "@/features/settings/InstanceSettingsForm";
 import { ServerPropertiesForm } from "@/features/settings/ServerPropertiesForm";
 import { ModpackUpdatesCard } from "@/features/settings/ModpackUpdatesCard";
 import { AutomationCard } from "@/features/settings/AutomationCard";
-import { ResourceUsageRow } from "@/features/dashboard/ResourceUsageRow";
 import { InstanceLogsTab } from "@/features/console/InstanceLogsTab";
 import { InstanceFilesTab } from "@/features/console/InstanceFilesTab";
 import { InstanceModsTab } from "@/features/console/InstanceModsTab";
 import { InstancePlayersTab } from "@/features/console/InstancePlayersTab";
 import { OnlinePlayersCard } from "@/features/console/OnlinePlayersCard";
+import { InstanceDashboard } from "@/features/console/InstanceDashboard";
 
 const TABS = [
   "overview",
@@ -101,11 +101,7 @@ export function InstanceDetailPage() {
 
         <TabsContent value="overview" className="flex flex-col gap-4">
           <ForgeInstallBanner instance={instance} />
-          {instance.status === "running" && (
-            <div className="rounded-xl border border-border bg-card p-4">
-              <ResourceUsageRow instance={instance} />
-            </div>
-          )}
+          {instance.status === "running" && <InstanceDashboard instance={instance} />}
           <dl className="grid grid-cols-2 gap-x-6 gap-y-3 rounded-xl border border-border bg-card p-4 text-sm sm:grid-cols-3">
             <div>
               <dt className="text-muted-foreground">Minecraft version</dt>

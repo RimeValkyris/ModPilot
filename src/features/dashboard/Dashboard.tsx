@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   ArrowRight,
   Cpu,
+  HardDrive,
   MemoryStick,
   Server as ServerIcon,
 } from "lucide-react";
@@ -12,7 +13,7 @@ import { useResourceUsagePolling } from "@/hooks/useResourceUsagePolling";
 import { useResourceUsageStore } from "@/stores/resourceUsageStore";
 import { useJavaStore } from "@/stores/javaStore";
 import { getRequiredJavaMajor, parseJavaMajor } from "@/lib/javaRequirement";
-import { formatMemoryMb } from "@/lib/format";
+import { formatFileSize, formatMemoryMb } from "@/lib/format";
 import { STATUS_DOT } from "@/lib/serverStatus";
 import { CreateInstanceDialog } from "@/features/dashboard/CreateInstanceDialog";
 import { ImportServerDialog } from "@/features/dashboard/ImportServerDialog";
@@ -50,6 +51,7 @@ export function Dashboard() {
   const { instances, isLoading } = useInstances();
   useResourceUsagePolling();
   const usageByInstanceId = useResourceUsageStore((s) => s.usageByInstanceId);
+  const disk = useResourceUsageStore((s) => s.disk);
   const { installations: javaInstallations, fetchInstallations } = useJavaStore();
 
   useEffect(() => {
@@ -132,16 +134,6 @@ export function Dashboard() {
           tint="bg-primary/10 text-primary"
         />
         <StatCard
-          icon={AlertTriangle}
-          label="Needs attention"
-          value={String(needsAttention.length)}
-          tint={
-            needsAttention.length > 0
-              ? "bg-destructive/10 text-destructive"
-              : "bg-muted text-muted-foreground"
-          }
-        />
-        <StatCard
           icon={Cpu}
           label="CPU in use"
           value={running.length > 0 ? `${totalCpu.toFixed(0)}%` : "—"}
@@ -153,6 +145,17 @@ export function Dashboard() {
           value={running.length > 0 ? formatMemoryMb(totalRamUsed) : "—"}
           detail={running.length > 0 ? `of ${formatMemoryMb(totalRamAllocated)}` : undefined}
           tint="bg-violet-500/10 text-violet-600 dark:text-violet-400"
+        />
+        {/* Unlike CPU and RAM, this stays populated with every server
+            stopped - disk is a property of the machine, and "is there room
+            for another pack" is a question asked precisely when nothing is
+            running. */}
+        <StatCard
+          icon={HardDrive}
+          label="Disk in use"
+          value={disk ? `${disk.usedPercent.toFixed(0)}%` : "—"}
+          detail={disk ? `${formatFileSize(disk.totalBytes - disk.usedBytes)} free` : undefined}
+          tint="bg-amber-500/10 text-amber-600 dark:text-amber-400"
         />
       </div>
 

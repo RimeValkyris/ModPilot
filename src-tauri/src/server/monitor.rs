@@ -39,11 +39,15 @@ impl ResourceMonitor {
         let memory_mb = process.memory() as f64 / (1024.0 * 1024.0);
         let uptime_seconds = (Utc::now() - started_at).num_seconds().max(0);
 
+        // The process-derived fields only. Disk, ping and TPS are filled in
+        // by `commands::monitor::enrich`, which has the instance context
+        // this sampler deliberately doesn't need.
         ResourceUsage {
             is_running: true,
             cpu_percent,
             memory_mb,
             uptime_seconds,
+            ..ResourceUsage::not_running()
         }
     }
 }

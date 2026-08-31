@@ -1,7 +1,11 @@
 import { useState } from "react";
 import { Table2, LineChart as LineChartIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useResourceUsageStore, CHART_SLOTS } from "@/stores/resourceUsageStore";
+import {
+  useResourceUsageStore,
+  CHART_SLOTS,
+  type UsageSample,
+} from "@/stores/resourceUsageStore";
 import { formatMemoryMb } from "@/lib/format";
 import { TrendChart, type TrendSeries } from "@/features/dashboard/TrendChart";
 import type { Instance } from "@/types/instance";
@@ -16,6 +20,14 @@ const SLOT_COLORS = [
   "var(--chart-4)",
 ];
 const OTHER_COLOR = "var(--chart-5)";
+
+/** Wall-clock span covered by a series of sample timestamps. */
+function formatSpan(timestamps: number[]): string {
+  if (timestamps.length < 2) return "moments";
+  const seconds = Math.round((timestamps[timestamps.length - 1] - timestamps[0]) / 1000);
+  if (seconds < 90) return `${seconds}s`;
+  return `${Math.round(seconds / 60)}m`;
+}
 
 export function ResourceTrends({ instances }: { instances: Instance[] }) {
   const historyByInstanceId = useResourceUsageStore((s) => s.historyByInstanceId);
@@ -39,7 +51,9 @@ export function ResourceTrends({ instances }: { instances: Instance[] }) {
   );
   const timestamps = historyByInstanceId[reference.id].map((s) => s.t);
 
-  function build(pick: (s: { cpuPercent: number; memoryMb: number }) => number): TrendSeries[] {
+  // `pick` may return null for a metric a given tick had no reading for -
+  // the chart draws a gap there rather than a dip to zero.
+  function build(pick: (s: UsageSample) => number | null): TrendSeries[] {
     const named = running.map((instance) => {
       const samples = historyByInstanceId[instance.id] ?? [];
       const pad = timestamps.length - samples.length;
@@ -56,12 +70,21 @@ export function ResourceTrends({ instances }: { instances: Instance[] }) {
 
   const cpuSeries = build((s) => s.cpuPercent);
   const ramSeries = build((s) => s.memoryMb);
+  const diskSeries = build((s) => s.diskPercent);
+
+  // Several instances on the same volume report the same disk number, so the
+  // chart is only worth its space when at least one series has readings.
+  const hasDisk = diskSeries.some((s) => s.values.some((v) => v !== null));
 
   return (
     <section className="flex flex-col gap-3">
       <div className="flex items-center justify-between">
+        {/* Derived from the timestamps themselves, not from sample count x
+            interval: the poll slows to a crawl while nothing is running, so
+            a fixed 2s-per-sample assumption would mislabel any history that
+            spans a start-up. */}
         <h2 className="text-sm font-medium text-muted-foreground">
-          Resource Usage · last {Math.round((timestamps.length * 2) / 60)}m
+          Resource Usage · last {formatSpan(timestamps)}
         </h2>
         {/* Table view keeps every value reachable without hovering. */}
         <Button variant="ghost" size="sm" onClick={() => setShowTable((v) => !v)}>
@@ -90,13 +113,14 @@ export function ResourceTrends({ instances }: { instances: Instance[] }) {
         <div className="overflow-x-auto rounded-xl border border-border bg-card">
           <table className="w-full text-sm">
             <caption className="sr-only">
-              Latest CPU and memory readings per running server
+              Latest CPU, memory and disk readings per running server
             </caption>
             <thead>
               <tr className="border-b border-border text-left text-xs text-muted-foreground">
                 <th scope="col" className="p-2 font-medium">Server</th>
                 <th scope="col" className="p-2 font-medium">CPU</th>
                 <th scope="col" className="p-2 font-medium">Memory</th>
+                <th scope="col" className="p-2 font-medium">Disk</th>
                 <th scope="col" className="p-2 font-medium">Peak CPU</th>
                 <th scope="col" className="p-2 font-medium">Peak memory</th>
               </tr>
@@ -112,6 +136,9 @@ export function ResourceTrends({ instances }: { instances: Instance[] }) {
                     <th scope="row" className="p-2 text-left font-normal">{instance.name}</th>
                     <td className="p-2">{last.cpuPercent.toFixed(0)}%</td>
                     <td className="p-2">{formatMemoryMb(last.memoryMb)}</td>
+                    <td className="p-2">
+                      {last.diskPercent !== null ? `${last.diskPercent.toFixed(0)}%` : "—"}
+                    </td>
                     <td className="p-2">{peakCpu.toFixed(0)}%</td>
                     <td className="p-2">{formatMemoryMb(peakMem)}</td>
                   </tr>
@@ -143,6 +170,22 @@ export function ResourceTrends({ instances }: { instances: Instance[] }) {
               minTop={1024}
             />
           </figure>
+          {hasDisk && (
+            <figure className="rounded-xl border border-border bg-card p-3">
+              <figcaption className="mb-1 text-xs font-medium">
+                Disk <span className="font-normal text-muted-foreground">· volume used</span>
+              </figcaption>
+              {/* Pinned to 100: disk usage only means anything against the
+                  full volume, and auto-scaling a 40-42% range would turn a
+                  flat two hours into an alarming climb. */}
+              <TrendChart
+                series={diskSeries}
+                timestamps={timestamps}
+                format={(v) => `${Math.round(v)}%`}
+                minTop={100}
+              />
+            </figure>
+          )}
         </div>
       )}
     </section>
