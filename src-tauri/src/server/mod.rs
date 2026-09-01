@@ -6,6 +6,7 @@ mod manager;
 mod monitor;
 mod players;
 mod process;
+mod recovery;
 mod scheduler;
 mod stats;
 
@@ -19,3 +20,4 @@ pub use players::PlayerTracker;
 pub use stats::{ping_server, spawn_tps_poller, DiskSampler, PortCache, TpsTracker};
 pub use scheduler::{spawn as spawn_scheduler, Schedule, ScheduleTracker};
 pub use process::{set_status, spawn_server_process};
+pub use recovery::{clear_stale_instance, reconcile_stale_state};

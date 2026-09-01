@@ -160,6 +160,11 @@ pub async fn start_instance(app: AppHandle, state: State<'_, AppState>, id: Stri
 /// `instance-status-changed`).
 #[tauri::command]
 pub async fn stop_instance(app: AppHandle, state: State<'_, AppState>, id: String) -> Result<(), String> {
+    if !state.processes.is_running(&id).await {
+        server::clear_stale_instance(&app, &state.db, &id).await;
+        return Ok(());
+    }
+
     state.processes.mark_stopping(&id).await?;
     state.processes.write_line(&id, "stop").await?;
     server::set_status(&app, &state.db, &id, ServerStatus::Stopping).await;
@@ -171,6 +176,11 @@ pub async fn stop_instance(app: AppHandle, state: State<'_, AppState>, id: Strin
 /// in-progress world save.
 #[tauri::command]
 pub async fn force_stop_instance(app: AppHandle, state: State<'_, AppState>, id: String) -> Result<(), String> {
+    if !state.processes.is_running(&id).await {
+        server::clear_stale_instance(&app, &state.db, &id).await;
+        return Ok(());
+    }
+
     state.processes.mark_stopping(&id).await?;
     let kill_tx = state.processes.kill_sender(&id).await?;
     server::set_status(&app, &state.db, &id, ServerStatus::Stopping).await;
@@ -203,6 +213,12 @@ pub async fn restart_instance(app: AppHandle, state: State<'_, AppState>, id: St
         while state.processes.is_running(&id).await {
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
+    } else {
+        // No live process, but the stored status may still claim otherwise
+        // (e.g. the app was killed while the server was up), which
+        // `start_instance` would reject. Correct it first so a restart is
+        // still the one-click way out.
+        server::clear_stale_instance(&app, &state.db, &id).await;
     }
 
     start_instance(app, state, id).await

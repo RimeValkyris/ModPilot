@@ -91,6 +91,12 @@ pub fn run() {
             }
             paths.ensure_dirs_exist()?;
 
+            // Nothing is running in a process we just started, whatever the
+            // database says. Repair rows left mid-lifecycle by a previous
+            // session before the UI (or auto-start) can act on them - see
+            // `server::reconcile_stale_state`.
+            tauri::async_runtime::block_on(server::reconcile_stale_state(&db));
+
             app.manage(AppState {
                 db,
                 paths,
