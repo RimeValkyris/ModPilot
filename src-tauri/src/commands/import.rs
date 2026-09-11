@@ -100,6 +100,7 @@ pub async fn import_instance(
         return Err("Minimum RAM must be positive and not exceed maximum RAM".to_string());
     }
 
+    let launch_mode = detected.launch_mode().to_string();
     let instance = Instance {
         id: Uuid::new_v4().to_string(),
         name,
@@ -110,8 +111,8 @@ pub async fn import_instance(
         min_ram_mb,
         max_ram_mb,
         server_directory: instance_dir.to_string_lossy().to_string(),
+        launch_mode,
         server_jar: detected.server_jar,
-        launch_mode: if detected.server_jar_is_argfile { "argfile" } else { "jar" }.to_string(),
         jvm_args: Vec::new(),
         server_args: Vec::new(),
         status: ServerStatus::Stopped,

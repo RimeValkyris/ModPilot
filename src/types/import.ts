@@ -11,6 +11,10 @@ export interface DetectedServerInfo {
   loader: ServerLoader;
   loaderVersion: string | null;
   serverJar: string | null;
+  /** `serverJar` is a Forge/NeoForge `@`-argfile, not a runnable jar. */
+  serverJarIsArgfile: boolean;
+  /** `serverJar` is the pack's own start script, to be run as-is. */
+  serverJarIsScript: boolean;
   hasModsFolder: boolean;
   modCount: number;
   hasConfigFolder: boolean;

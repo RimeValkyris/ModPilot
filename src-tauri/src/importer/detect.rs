@@ -1,8 +1,24 @@
+use std::cell::RefCell;
 use std::path::Path;
 
 use regex::Regex;
 
+use super::script::parse_start_script;
 use crate::models::{DetectedServerInfo, ServerLoader};
+
+/// Reads one of the analyzed files by its (wrapper-stripped, forward-slash)
+/// path, as text. `None` for anything missing or not valid UTF-8.
+///
+/// Detection is mostly a path-listing exercise, but a pack that ships only
+/// a start script keeps the answer *inside* a file - so `analyze` gets a
+/// way to open the handful of files it actually needs to read, without
+/// caring whether they live in a directory or still inside a ZIP.
+type ReadFile<'a> = dyn Fn(&str) -> Option<String> + 'a;
+
+/// How large a file this is willing to read as a start script. Real ones
+/// are a few hundred bytes; anything vastly larger is not a script, and
+/// imported archives are untrusted input.
+const MAX_SCRIPT_BYTES: usize = 256 * 1024;
 
 const START_SCRIPT_NAMES: &[&str] = &[
     "start.sh",
@@ -73,7 +89,11 @@ pub fn detect_from_dir(root: &Path) -> DetectedServerInfo {
         }
     }
     let (file_paths, wrapper) = strip_wrapper_folder(file_paths);
-    let mut info = analyze(&file_paths);
+    let read_root = match &wrapper {
+        Some(wrapper) => root.join(wrapper),
+        None => root.to_path_buf(),
+    };
+    let mut info = analyze(&file_paths, &|rel: &str| read_text_file(&read_root.join(rel)));
     if let Some(wrapper) = wrapper {
         info.warnings.insert(
             0,
@@ -81,6 +101,14 @@ pub fn detect_from_dir(root: &Path) -> DetectedServerInfo {
         );
     }
     info
+}
+
+fn read_text_file(path: &Path) -> Option<String> {
+    let metadata = std::fs::metadata(path).ok()?;
+    if !metadata.is_file() || metadata.len() > MAX_SCRIPT_BYTES as u64 {
+        return None;
+    }
+    std::fs::read_to_string(path).ok()
 }
 
 /// Runs detection against a ZIP archive's file listing, without extracting
@@ -101,7 +129,14 @@ pub fn detect_from_zip(zip_path: &Path) -> std::io::Result<DetectedServerInfo> {
     }
 
     let (file_paths, wrapper) = strip_wrapper_folder(file_paths);
-    let mut info = analyze(&file_paths);
+    let prefix = wrapper.as_ref().map(|w| format!("{w}/")).unwrap_or_default();
+    // `ZipArchive::by_name` needs `&mut self`, but `analyze` only ever
+    // reads one file at a time - a `RefCell` keeps that borrow local
+    // instead of threading mutability through the whole signature.
+    let archive = RefCell::new(archive);
+    let mut info = analyze(&file_paths, &|rel: &str| {
+        read_zip_entry(&mut archive.borrow_mut(), &format!("{prefix}{rel}"))
+    });
     if let Some(wrapper) = wrapper {
         info.warnings.insert(
             0,
@@ -111,13 +146,33 @@ pub fn detect_from_zip(zip_path: &Path) -> std::io::Result<DetectedServerInfo> {
     Ok(info)
 }
 
+fn read_zip_entry(
+    archive: &mut zip::ZipArchive<std::fs::File>,
+    name: &str,
+) -> Option<String> {
+    use std::io::Read;
+
+    // Entry names were normalized to forward slashes for analysis, so a
+    // (rare) archive written with backslashes needs its own spelling back.
+    let mut entry = match archive.index_for_name(name) {
+        Some(index) => archive.by_index(index).ok()?,
+        None => archive.by_name(&name.replace('/', "\\")).ok()?,
+    };
+    if entry.size() > MAX_SCRIPT_BYTES as u64 {
+        return None;
+    }
+    let mut buf = String::new();
+    entry.read_to_string(&mut buf).ok()?;
+    Some(buf)
+}
+
 /// Shared heuristics: given every file's path (forward-slash, relative to
 /// the server root), guess loader/version/JAR/mods/world/etc.
 ///
 /// This is deliberately best-effort. Server layouts vary a lot in the wild,
 /// so anything not clearly identifiable is left as `None`/`false` plus a
 /// warning, rather than guessed with false confidence.
-fn analyze(file_paths: &[String]) -> DetectedServerInfo {
+fn analyze(file_paths: &[String], read: &ReadFile) -> DetectedServerInfo {
     let mut info = DetectedServerInfo::default();
     let lower_paths: Vec<String> = file_paths.iter().map(|p| p.to_lowercase()).collect();
 
@@ -182,6 +237,14 @@ fn analyze(file_paths: &[String]) -> DetectedServerInfo {
         info.server_jar_is_argfile = true;
     }
 
+    // Nothing launchable found from paths alone. Plenty of server packs
+    // ship only a `run.bat`/`start.sh`, so before giving up, read what the
+    // pack's own script says it launches - and failing that, fall back to
+    // running that script itself.
+    if info.server_jar.is_none() && !info.start_scripts.is_empty() {
+        resolve_from_start_scripts(file_paths, &lower_paths, read, &mut info);
+    }
+
     if info.server_jar.is_none() && installer_jar_present {
         info.warnings.push(
             "This is a Forge/NeoForge installer, not a ready-to-run server yet. Import it, \
@@ -192,10 +255,13 @@ fn analyze(file_paths: &[String]) -> DetectedServerInfo {
         info.warnings.push(
             "No server JAR or start script detected. You'll need to configure this instance manually.".to_string(),
         );
-    } else if info.server_jar.is_none() && !info.start_scripts.is_empty() {
-        info.warnings.push(
-            "No single server JAR found; this loader likely launches via its start script instead.".to_string(),
-        );
+    } else if info.server_jar_is_script {
+        info.warnings.push(format!(
+            "No server JAR found, so this instance will be started through the pack's own \
+             \"{}\" script. Its console still appears here, but the RAM settings below come \
+             from that script rather than ModpackPilot.",
+            info.server_jar.as_deref().unwrap_or_default()
+        ));
     }
 
     if !info.has_server_properties {
@@ -204,6 +270,94 @@ fn analyze(file_paths: &[String]) -> DetectedServerInfo {
     }
 
     info
+}
+
+/// The start-script flavour this build can actually execute. A `run.sh`
+/// on Windows (or a `run.bat` on Linux) is still worth *reading* - the jar
+/// it names is the same either way - but it can never be the fallback that
+/// gets run directly.
+#[cfg(windows)]
+const PLATFORM_SCRIPT_EXT: &str = ".bat";
+#[cfg(not(windows))]
+const PLATFORM_SCRIPT_EXT: &str = ".sh";
+
+/// Last-resort launch resolution for packs that ship a start script and
+/// nothing else recognizable.
+///
+/// Reading the script is tried first and preferred by a wide margin:
+/// a parsed jar/argfile is launched as a direct child of ModpackPilot,
+/// which is what makes console input, graceful `stop`, and reliable
+/// process control work. Running the script itself is only for scripts
+/// this can't parse.
+fn resolve_from_start_scripts(
+    file_paths: &[String],
+    lower_paths: &[String],
+    read: &ReadFile,
+    info: &mut DetectedServerInfo,
+) {
+    // Same-platform scripts first: both usually name the same jar, but
+    // Forge/NeoForge argfiles are platform-specific, and only a
+    // same-platform script is runnable as the fallback below.
+    let mut scripts = info.start_scripts.clone();
+    scripts.sort_by_key(|s| !s.to_lowercase().ends_with(PLATFORM_SCRIPT_EXT));
+
+    for script in &scripts {
+        let Some(contents) = read(script) else {
+            continue;
+        };
+        let Some(launch) = parse_start_script(&contents) else {
+            continue;
+        };
+        // A parsed path that isn't in the pack means the script builds or
+        // downloads it at runtime - not something to point `-jar` at.
+        let target = existing_path(&launch.target, file_paths, lower_paths).or_else(|| {
+            launch
+                .is_argfile
+                .then(|| swapped_platform_argfile(&launch.target, file_paths, lower_paths))
+                .flatten()
+        });
+        let Some(target) = target else {
+            continue;
+        };
+
+        info.server_jar = Some(target);
+        info.server_jar_is_argfile = launch.is_argfile;
+        return;
+    }
+
+    if let Some(script) = scripts
+        .iter()
+        .find(|s| s.to_lowercase().ends_with(PLATFORM_SCRIPT_EXT))
+    {
+        info.server_jar = Some(script.clone());
+        info.server_jar_is_argfile = false;
+        info.server_jar_is_script = true;
+    }
+}
+
+/// Returns the pack's own spelling of `candidate` if it exists at all
+/// (case-insensitively - Windows packs are routinely inconsistent about
+/// case in paths their scripts reference).
+fn existing_path(candidate: &str, file_paths: &[String], lower_paths: &[String]) -> Option<String> {
+    let needle = candidate.to_lowercase();
+    file_paths
+        .iter()
+        .zip(lower_paths)
+        .find(|(_, lower)| **lower == needle)
+        .map(|(original, _)| original.clone())
+}
+
+/// A `run.sh` read on Windows (or vice versa) names the *other* platform's
+/// argfile, whose classpath uses the wrong separator and would fail at
+/// launch. The installer always writes both, so swap in this platform's.
+fn swapped_platform_argfile(
+    target: &str,
+    file_paths: &[String],
+    lower_paths: &[String],
+) -> Option<String> {
+    let other = if LOADER_ARGFILE_SUFFIX == "win_args.txt" { "unix_args.txt" } else { "win_args.txt" };
+    let stripped = target.to_lowercase().strip_suffix(other).map(str::to_string)?;
+    existing_path(&format!("{stripped}{LOADER_ARGFILE_SUFFIX}"), file_paths, lower_paths)
 }
 
 fn detect_loader_and_version(
@@ -296,4 +450,168 @@ fn pick_server_jar(root_jars: &[&str], loader: ServerLoader) -> Option<String> {
     };
 
     preferred.or(root_jars.first()).map(|s| s.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Builds a throwaway server pack on disk from `(relative path,
+    /// contents)` pairs, so detection can be exercised the same way it
+    /// runs for real (`detect_from_dir`) rather than against a synthetic
+    /// path list.
+    fn pack(label: &str, files: &[(&str, &str)]) -> std::path::PathBuf {
+        let root = std::env::temp_dir()
+            .join(format!("modpackpilot-detect-{label}-{}", uuid::Uuid::new_v4()));
+        for (path, contents) in files {
+            let full = root.join(path);
+            std::fs::create_dir_all(full.parent().expect("parent")).expect("create dirs");
+            std::fs::write(full, contents).expect("write file");
+        }
+        root
+    }
+
+    fn platform_script(name: &str) -> String {
+        format!("{name}{PLATFORM_SCRIPT_EXT}")
+    }
+
+    fn platform_argfile(version: &str) -> String {
+        format!("libraries/net/neoforged/neoforge/{version}/{LOADER_ARGFILE_SUFFIX}")
+    }
+
+    /// The case this whole path exists for: a server pack whose only clue
+    /// is its start script, with the argfile somewhere detection's own
+    /// hard-coded lookup would have found - it must still agree with what
+    /// the script says.
+    #[test]
+    fn reads_the_launch_target_out_of_the_start_script() {
+        let argfile = platform_argfile("21.1.72");
+        let script = platform_script("run");
+        let root = pack(
+            "script-argfile",
+            &[
+                (script.as_str(), &format!("java @user_jvm_args.txt @{argfile} %*\n")),
+                (argfile.as_str(), "-cp\nlibs\n"),
+                ("mods/example.jar", "x"),
+                ("user_jvm_args.txt", "-Xmx4G\n"),
+            ],
+        );
+
+        let info = detect_from_dir(&root);
+
+        assert_eq!(info.server_jar.as_deref(), Some(argfile.as_str()));
+        assert!(info.server_jar_is_argfile);
+        assert!(!info.server_jar_is_script);
+        assert_eq!(info.launch_mode(), "argfile");
+    }
+
+    /// A jar the hard-coded root-level scan can't see, because it isn't at
+    /// the root - only the script knows where it went.
+    #[test]
+    fn finds_a_jar_the_script_points_into_a_subfolder() {
+        let script = platform_script("run");
+        let root = pack(
+            "script-subfolder-jar",
+            &[
+                (script.as_str(), "java -Xmx4G -jar ./server/quilt-server-launch.jar nogui\n"),
+                ("server/quilt-server-launch.jar", "x"),
+                ("mods/example.jar", "x"),
+            ],
+        );
+
+        let info = detect_from_dir(&root);
+
+        assert_eq!(info.server_jar.as_deref(), Some("server/quilt-server-launch.jar"));
+        assert!(!info.server_jar_is_argfile);
+        assert_eq!(info.launch_mode(), "jar");
+    }
+
+    /// A script naming something the pack doesn't contain is a script that
+    /// builds or downloads it at runtime - launching that path directly
+    /// would fail, so the script itself has to be run instead.
+    #[test]
+    fn falls_back_to_running_the_script_when_its_target_is_missing() {
+        let script = platform_script("run");
+        let root = pack(
+            "script-missing-target",
+            &[
+                (script.as_str(), "java -jar downloaded-later.jar nogui\n"),
+                ("mods/example.jar", "x"),
+            ],
+        );
+
+        let info = detect_from_dir(&root);
+
+        assert_eq!(info.server_jar.as_deref(), Some(script.as_str()));
+        assert!(info.server_jar_is_script);
+        assert_eq!(info.launch_mode(), "script");
+        assert!(
+            info.warnings.iter().any(|w| w.contains(&script)),
+            "the user should be told the pack's script is what runs: {:?}",
+            info.warnings,
+        );
+    }
+
+    /// An unparseable script (here: a wrapper around another script) is
+    /// still perfectly runnable - it just can't be reduced to a jar.
+    #[test]
+    fn falls_back_to_running_an_unparseable_script() {
+        let script = platform_script("run");
+        let root = pack(
+            "script-unparseable",
+            &[
+                (script.as_str(), "call ServerStart.bat\n"),
+                ("ServerStart.bat", "java -jar whatever.jar\n"),
+                ("mods/example.jar", "x"),
+            ],
+        );
+
+        let info = detect_from_dir(&root);
+
+        assert_eq!(info.server_jar.as_deref(), Some(script.as_str()));
+        assert!(info.server_jar_is_script);
+    }
+
+    /// A root jar is unambiguous, and reading a script could only ever
+    /// contradict it - so the script is never consulted in that case.
+    #[test]
+    fn a_real_server_jar_still_wins_over_the_script() {
+        let script = platform_script("run");
+        let root = pack(
+            "root-jar-wins",
+            &[
+                (script.as_str(), "java -jar something-else.jar nogui\n"),
+                ("something-else.jar", "x"),
+                ("server.jar", "x"),
+            ],
+        );
+
+        let info = detect_from_dir(&root);
+
+        assert_eq!(info.server_jar.as_deref(), Some("server.jar"));
+        assert!(!info.server_jar_is_script);
+    }
+
+    /// Wrapper-folder stripping rewrites every analyzed path; the script
+    /// still has to be found on disk under its original location.
+    #[test]
+    fn reads_a_script_inside_a_wrapper_folder() {
+        let script = platform_script("run");
+        let root = pack(
+            "script-wrapped",
+            &[
+                (
+                    format!("MyPack-1.0/{script}").as_str(),
+                    "java -jar fabric-server-launch.jar nogui\n",
+                ),
+                ("MyPack-1.0/fabric-server-launch.jar", "x"),
+                ("MyPack-1.0/mods/example.jar", "x"),
+            ],
+        );
+
+        let info = detect_from_dir(&root);
+
+        assert_eq!(info.server_jar.as_deref(), Some("fabric-server-launch.jar"));
+        assert_eq!(info.launch_mode(), "jar");
+    }
 }

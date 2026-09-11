@@ -32,7 +32,7 @@ const FABRIC_INSTALLER_VERSION: &str = "1.0.1";
 pub struct InstalledLoader {
     /// Relative to the instance's `server/` directory.
     pub server_jar: String,
-    /// `"jar"` or `"argfile"` - see `Instance::launch_mode`.
+    /// `"jar"`, `"argfile"`, or `"script"` - see `Instance::launch_mode`.
     pub launch_mode: String,
 }
 
@@ -191,6 +191,7 @@ pub async fn detect_installed(server_dir: &Path) -> Result<InstalledLoader, Stri
         .await
         .map_err(|e| format!("Detection task failed: {e}"))?;
 
+    let launch_mode = detected.launch_mode().to_string();
     let server_jar = detected.server_jar.ok_or_else(|| {
         "The installer finished, but ModpackPilot couldn't find the resulting server files. \
          Check this instance's server folder manually."
@@ -199,7 +200,7 @@ pub async fn detect_installed(server_dir: &Path) -> Result<InstalledLoader, Stri
 
     Ok(InstalledLoader {
         server_jar,
-        launch_mode: if detected.server_jar_is_argfile { "argfile" } else { "jar" }.to_string(),
+        launch_mode,
     })
 }
 

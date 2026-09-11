@@ -30,6 +30,10 @@ pub struct DetectedServerInfo {
     /// Forge/NeoForge `@`-argfile rather than a directly-runnable jar -
     /// see `Instance::launch_mode`.
     pub server_jar_is_argfile: bool,
+    /// `true` when no jar or argfile could be identified at all and
+    /// `server_jar` is the pack's own start script, to be run as-is - see
+    /// `Instance::launch_mode`.
+    pub server_jar_is_script: bool,
     pub has_mods_folder: bool,
     pub mod_count: usize,
     pub has_config_folder: bool,
@@ -40,6 +44,19 @@ pub struct DetectedServerInfo {
     /// Anything worth surfacing to the user that isn't fatal: multiple
     /// candidate server JARs, no JAR found at all, unreadable entries, etc.
     pub warnings: Vec<String>,
+}
+
+impl DetectedServerInfo {
+    /// The `Instance::launch_mode` this detection result implies.
+    pub fn launch_mode(&self) -> &'static str {
+        if self.server_jar_is_script {
+            "script"
+        } else if self.server_jar_is_argfile {
+            "argfile"
+        } else {
+            "jar"
+        }
+    }
 }
 
 /// Input for `import_instance` (wizard Step 6). Any field left `None` falls

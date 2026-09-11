@@ -46,7 +46,10 @@ pub async fn start_instance(app: AppHandle, state: State<'_, AppState>, id: Stri
 
     let working_dir = Path::new(&instance.server_directory).join("server");
     if !working_dir.join(&server_jar).is_file() {
-        return Err(format!("Server JAR \"{server_jar}\" was not found in the instance's server folder"));
+        let kind = if instance.launch_mode == "script" { "Start script" } else { "Server JAR" };
+        return Err(format!(
+            "{kind} \"{server_jar}\" was not found in the instance's server folder"
+        ));
     }
 
     ensure_eula_accepted(&working_dir).await?;

@@ -94,8 +94,10 @@ pub struct Instance {
     pub server_jar: Option<String>,
     /// How `server_jar` should be launched: `"jar"` runs it directly
     /// (`java -jar <server_jar>`); `"argfile"` means `server_jar` is
-    /// actually the path to a modern Forge/NeoForge `@`-argfile (see
-    /// `crate::server::spawn_server_process`).
+    /// actually the path to a modern Forge/NeoForge `@`-argfile;
+    /// `"script"` means no jar could be identified at all and
+    /// `server_jar` is the pack's own start script (`run.bat`/`run.sh`),
+    /// which gets run as-is (see `crate::server::spawn_server_process`).
     pub launch_mode: String,
     pub jvm_args: Vec<String>,
     pub server_args: Vec<String>,

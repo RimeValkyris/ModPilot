@@ -269,7 +269,11 @@ export function ImportServerDialog() {
 
             <fieldset disabled={isSubmitting} className="contents">
             <div className="flex flex-wrap gap-1.5">
-              {detected.serverJar && <Badge variant="secondary">JAR: {detected.serverJar}</Badge>}
+              {detected.serverJar && (
+                <Badge variant="secondary">
+                  {detected.serverJarIsScript ? "Starts via" : "JAR"}: {detected.serverJar}
+                </Badge>
+              )}
               {detected.hasModsFolder && (
                 <Badge variant="secondary">{detected.modCount} mods</Badge>
               )}

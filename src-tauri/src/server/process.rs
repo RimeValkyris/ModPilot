@@ -122,6 +122,78 @@ async fn notify_status(app: &AppHandle, db: &SqlitePool, instance_id: &str, stat
         .show();
 }
 
+/// Builds the command for `"script"` launch mode, where the pack ships a
+/// `run.bat`/`run.sh` and nothing this could parse a jar out of (see
+/// `importer::script`). The script is run through its shell, in the server
+/// directory, with stdio piped exactly as a direct Java launch would be -
+/// a batch file forwards its own stdin/stdout to the Java process it
+/// starts, so the console and the graceful `stop` command still work.
+///
+/// The script decides its own RAM and JVM flags, so the instance's
+/// `jvm_args` are deliberately not applied here; what *is* applied is the
+/// instance's Java, put ahead of everything else on `PATH` (plus
+/// `JAVA_HOME`) so a script calling a bare `java` gets the same runtime
+/// every other launch mode would have used.
+fn script_command(script: &str, java_path: &str) -> tokio::process::Command {
+    #[cfg(windows)]
+    let mut command = {
+        let mut command = tokio::process::Command::new("cmd");
+        // `/C` rather than a bare invocation: `.bat` files are not
+        // executable images, only cmd.exe can run one.
+        command.arg("/C").arg(script);
+        command
+    };
+    #[cfg(not(windows))]
+    let mut command = {
+        let mut command = tokio::process::Command::new("sh");
+        command.arg(format!("./{script}"));
+        // Without its own process group, the shell's children survive a
+        // force-stop - see `kill_process_tree`.
+        command.process_group(0);
+        command
+    };
+
+    let java_bin = std::path::Path::new(java_path).parent();
+    if let Some(bin) = java_bin {
+        if let Some(home) = bin.parent() {
+            command.env("JAVA_HOME", home);
+        }
+        let existing = std::env::var_os("PATH").unwrap_or_default();
+        let mut entries = vec![bin.to_path_buf()];
+        entries.extend(std::env::split_paths(&existing));
+        if let Ok(joined) = std::env::join_paths(entries) {
+            command.env("PATH", joined);
+        }
+    }
+
+    command
+}
+
+/// Force-kills a process and everything it spawned. Only needed for
+/// `"script"` mode, where the tracked child is a shell standing between
+/// ModpackPilot and the actual server.
+async fn kill_process_tree(pid: u32) {
+    #[cfg(windows)]
+    let mut killer = {
+        let mut killer = tokio::process::Command::new("taskkill");
+        killer.args(["/T", "/F", "/PID", &pid.to_string()]);
+        killer.creation_flags(0x0800_0000);
+        killer
+    };
+    // The shell was started in its own process group, so a negative PID
+    // signals the group - the server included.
+    #[cfg(not(windows))]
+    let mut killer = {
+        let mut killer = tokio::process::Command::new("kill");
+        killer.args(["-9", &format!("-{pid}")]);
+        killer
+    };
+
+    if let Err(e) = killer.stdout(Stdio::null()).stderr(Stdio::null()).status().await {
+        tracing::warn!("Couldn't kill process tree for pid {pid}: {e}");
+    }
+}
+
 /// Launches the Minecraft server as a managed child process in
 /// `working_dir`, wires up stdout/stderr capture to both log files and
 /// Tauri events, and spawns the background task that detects process exit.
@@ -135,6 +207,9 @@ async fn notify_status(app: &AppHandle, db: &SqlitePool, instance_id: &str, stat
 ///   have to be placed *before* it to still be read as JVM options rather
 ///   than program arguments, and *after* `@user_jvm_args.txt` so they take
 ///   priority over that file's own defaults.
+/// - `"script"`: `server_jar` is the pack's own `run.bat`/`run.sh`, run
+///   through its shell (see `script_command`) because nothing launchable
+///   could be identified any other way.
 ///
 /// The Minecraft process is a plain child process of ModpackPilot - never a
 /// shell command string, so nothing here is vulnerable to shell injection
@@ -154,16 +229,22 @@ pub async fn spawn_server_process(
     logs_dir: PathBuf,
     stop_requested: Arc<AtomicBool>,
 ) -> std::io::Result<SpawnedServer> {
-    let mut command = tokio::process::Command::new(&java_path);
-    if launch_mode == "argfile" {
-        command
-            .arg("@user_jvm_args.txt")
-            .args(&jvm_args)
-            .arg(format!("@{server_jar}"))
-            .args(&server_args);
+    let is_script = launch_mode == "script";
+    let mut command = if is_script {
+        script_command(&server_jar, &java_path)
     } else {
-        command.args(&jvm_args).arg("-jar").arg(&server_jar).args(&server_args);
-    }
+        let mut command = tokio::process::Command::new(&java_path);
+        if launch_mode == "argfile" {
+            command
+                .arg("@user_jvm_args.txt")
+                .args(&jvm_args)
+                .arg(format!("@{server_jar}"))
+                .args(&server_args);
+        } else {
+            command.args(&jvm_args).arg("-jar").arg(&server_jar).args(&server_args);
+        }
+        command
+    };
     command
         .current_dir(&working_dir)
         .stdin(Stdio::piped())
@@ -232,6 +313,14 @@ pub async fn spawn_server_process(
         let exit_status = tokio::select! {
             status = child.wait() => status,
             _ = kill_rx.recv() => {
+                // In script mode the child is the shell, not Java: killing
+                // it alone would leave the real server running headless
+                // with nothing attached to it.
+                if is_script {
+                    if let Some(pid) = pid {
+                        kill_process_tree(pid).await;
+                    }
+                }
                 let _ = child.start_kill();
                 child.wait().await
             }
