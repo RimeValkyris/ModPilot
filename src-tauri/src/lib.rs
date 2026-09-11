@@ -183,6 +183,7 @@ pub fn run() {
             commands::instance::delete_instance,
             commands::instance::set_instance_java,
             commands::instance::list_server_jars,
+            commands::instance::redetect_instance_launch,
             commands::instance::update_instance_settings,
             commands::instance::set_instance_schedules,
             commands::import::analyze_import,

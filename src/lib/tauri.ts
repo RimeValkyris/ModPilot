@@ -75,6 +75,9 @@ export const api = {
 
   listServerJars: (id: string) => invoke<string[]>("list_server_jars", { id }),
 
+  redetectInstanceLaunch: (id: string) =>
+    invoke<Instance>("redetect_instance_launch", { id }),
+
   updateInstanceSettings: (id: string, request: UpdateInstanceSettingsRequest) =>
     invoke<Instance>("update_instance_settings", { id, request }),
 

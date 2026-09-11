@@ -54,6 +54,15 @@ pub async fn start_instance(app: AppHandle, state: State<'_, AppState>, id: Stri
 
     ensure_eula_accepted(&working_dir).await?;
 
+    // In "script" mode the pack's own script decides the JVM flags, so the
+    // instance's `jvm_args` never reach Java. `user_jvm_args.txt` is the
+    // one exception: it's the file those scripts read (and the file every
+    // pack's own docs tell operators to edit), so the RAM configured in
+    // ModpackPilot is applied there instead of being silently ignored.
+    if instance.launch_mode == "script" {
+        apply_ram_to_user_jvm_args(&working_dir, instance.min_ram_mb, instance.max_ram_mb).await;
+    }
+
     if matches!(instance.loader, ServerLoader::Forge | ServerLoader::NeoForge) {
         disable_forge_update_checker(&working_dir).await;
     }
@@ -335,6 +344,48 @@ async fn disable_forge_update_checker(working_dir: &Path) {
     }
 }
 
+/// Marks the lines ModpackPilot owns in a pack's `user_jvm_args.txt`, so
+/// rewriting them can't accumulate duplicates across launches.
+const MANAGED_RAM_MARKER: &str = "# Memory settings managed by ModpackPilot";
+
+/// Rewrites the `-Xms`/`-Xmx` lines of `user_jvm_args.txt` to match the
+/// instance's configured RAM, leaving every other line (GC flags, custom
+/// properties, comments) untouched.
+///
+/// Deliberately does nothing when the pack doesn't ship the file: its
+/// presence is what tells us the start script actually reads it. Creating
+/// one for a script that ignores it would only look like it worked.
+async fn apply_ram_to_user_jvm_args(working_dir: &Path, min_ram_mb: i64, max_ram_mb: i64) {
+    let path = working_dir.join("user_jvm_args.txt");
+    let Ok(existing) = tokio::fs::read_to_string(&path).await else {
+        return;
+    };
+
+    let mut lines: Vec<String> = existing
+        .lines()
+        .filter(|line| {
+            let trimmed = line.trim();
+            // `-Xmn` (young generation) is a different flag and stays.
+            !trimmed.starts_with("-Xms")
+                && !trimmed.starts_with("-Xmx")
+                && trimmed != MANAGED_RAM_MARKER
+        })
+        .map(str::to_string)
+        .collect();
+
+    while lines.last().is_some_and(|line| line.trim().is_empty()) {
+        lines.pop();
+    }
+    lines.push(MANAGED_RAM_MARKER.to_string());
+    lines.push(format!("-Xms{min_ram_mb}M"));
+    lines.push(format!("-Xmx{max_ram_mb}M"));
+
+    let contents = format!("{}\n", lines.join("\n"));
+    if let Err(e) = tokio::fs::write(&path, contents).await {
+        tracing::warn!("Couldn't apply RAM settings to user_jvm_args.txt: {e}");
+    }
+}
+
 async fn patch_update_checker_toggle(path: &Path) -> std::io::Result<()> {
     match tokio::fs::read_to_string(path).await {
         Ok(contents) => {
@@ -479,4 +530,70 @@ pub(crate) async fn resolve_java_path(
     }
 
     Ok("java".to_string())
+}
+
+#[cfg(test)]
+mod user_jvm_args_tests {
+    use super::*;
+
+    fn temp_dir(label: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir()
+            .join(format!("modpackpilot-jvmargs-{label}-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        dir
+    }
+
+    /// Forge/NeoForge ship this file with the memory flags commented out
+    /// and other flags live; only the memory ones may be touched.
+    #[tokio::test]
+    async fn rewrites_memory_flags_and_leaves_everything_else_alone() {
+        let dir = temp_dir("rewrite");
+        std::fs::write(
+            dir.join("user_jvm_args.txt"),
+            "# JVM arguments
+-Xmx2G
+-XX:+UseG1GC
+-Xmn128M
+",
+        )
+        .expect("seed file");
+
+        apply_ram_to_user_jvm_args(&dir, 3072, 8192).await;
+
+        let contents = std::fs::read_to_string(dir.join("user_jvm_args.txt")).expect("read back");
+        assert!(contents.contains("# JVM arguments"), "{contents}");
+        assert!(contents.contains("-XX:+UseG1GC"), "{contents}");
+        assert!(contents.contains("-Xmn128M"), "the young-gen flag is not a memory setting: {contents}");
+        assert!(contents.contains("-Xms3072M"), "{contents}");
+        assert!(contents.contains("-Xmx8192M"), "{contents}");
+        assert!(!contents.contains("-Xmx2G"), "the old maximum should be gone: {contents}");
+    }
+
+    /// Every launch rewrites the file, so it must converge rather than
+    /// grow a new pair of flags each time.
+    #[tokio::test]
+    async fn repeated_applications_are_idempotent() {
+        let dir = temp_dir("idempotent");
+        std::fs::write(dir.join("user_jvm_args.txt"), "-Xmx2G
+").expect("seed file");
+
+        apply_ram_to_user_jvm_args(&dir, 1024, 4096).await;
+        let once = std::fs::read_to_string(dir.join("user_jvm_args.txt")).expect("read back");
+        apply_ram_to_user_jvm_args(&dir, 1024, 4096).await;
+        let twice = std::fs::read_to_string(dir.join("user_jvm_args.txt")).expect("read back");
+
+        assert_eq!(once, twice);
+        assert_eq!(twice.matches("-Xmx").count(), 1, "{twice}");
+    }
+
+    /// A pack with no `user_jvm_args.txt` has a script that doesn't read
+    /// one - writing the file would only pretend the setting took effect.
+    #[tokio::test]
+    async fn does_not_create_the_file_when_the_pack_has_none() {
+        let dir = temp_dir("absent");
+
+        apply_ram_to_user_jvm_args(&dir, 1024, 4096).await;
+
+        assert!(!dir.join("user_jvm_args.txt").exists());
+    }
 }

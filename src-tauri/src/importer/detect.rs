@@ -20,7 +20,10 @@ type ReadFile<'a> = dyn Fn(&str) -> Option<String> + 'a;
 /// imported archives are untrusted input.
 const MAX_SCRIPT_BYTES: usize = 256 * 1024;
 
-const START_SCRIPT_NAMES: &[&str] = &[
+/// Root-level file names treated as a server pack's start script. Also
+/// what the Configuration tab offers as launch targets, so a pack that
+/// only ships one of these stays selectable there.
+pub const START_SCRIPT_NAMES: &[&str] = &[
     "start.sh",
     "start.bat",
     "run.sh",

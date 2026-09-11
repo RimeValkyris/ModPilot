@@ -261,8 +261,19 @@ pub async fn rename_instance(
     Ok(instance)
 }
 
-/// Lists `.jar` files directly under an instance's `server/` folder, so the
-/// Configuration tab can offer a picker instead of a free-text path.
+/// Lists everything directly under an instance's `server/` folder that
+/// could be launched, so the Configuration tab can offer a picker instead
+/// of a free-text path: `.jar` files plus the pack's own start scripts
+/// (`run.bat`, `start.sh`, ...).
+///
+/// Start scripts belong here because some server packs ship nothing else -
+/// offering only jars left those instances showing an empty picker, and
+/// saving the form then wiped the working launch target they already had.
+///
+/// The instance's current `server_jar` is always included even when it
+/// isn't a root-level file (a Forge/NeoForge `@`-argfile lives several
+/// directories down), for the same reason: the picker must be able to
+/// round-trip what the instance is already set to.
 #[tauri::command]
 pub async fn list_server_jars(state: State<'_, AppState>, id: String) -> Result<Vec<String>, String> {
     let instance = fetch_instance(&state, &id)
@@ -274,19 +285,130 @@ pub async fn list_server_jars(state: State<'_, AppState>, id: String) -> Result<
         .await
         .map_err(|e| format!("Failed to read server directory: {e}"))?;
 
-    let mut jars = Vec::new();
+    let mut targets = Vec::new();
     while let Some(entry) = entries
         .next_entry()
         .await
         .map_err(|e| format!("Failed to read server directory: {e}"))?
     {
         let name = entry.file_name().to_string_lossy().to_string();
-        if name.to_lowercase().ends_with(".jar") {
-            jars.push(name);
+        let lower = name.to_lowercase();
+        if lower.ends_with(".jar") || crate::importer::START_SCRIPT_NAMES.contains(&lower.as_str()) {
+            targets.push(name);
         }
     }
-    jars.sort();
-    Ok(jars)
+    targets.sort();
+
+    if let Some(current) = instance.server_jar {
+        if !targets.contains(&current) {
+            targets.insert(0, current);
+        }
+    }
+
+    Ok(targets)
+}
+
+/// Works out how a manually-picked launch target has to be run.
+///
+/// Re-picking the target the instance already has must not change its
+/// mode - that's the only way an `@`-argfile instance survives a save from
+/// a form that can't tell an argfile from a jar by name alone.
+fn launch_mode_for_target(
+    target: Option<&str>,
+    current_target: Option<&str>,
+    current_mode: &str,
+) -> &'static str {
+    let Some(target) = target else {
+        return "jar";
+    };
+    if Some(target) == current_target {
+        return match current_mode {
+            "argfile" => "argfile",
+            "script" => "script",
+            _ => "jar",
+        };
+    }
+
+    let lower = target.to_lowercase();
+    if lower.ends_with(".jar") {
+        "jar"
+    } else if crate::importer::START_SCRIPT_NAMES.contains(&lower.as_str())
+        || lower.ends_with(".bat")
+        || lower.ends_with(".sh")
+        || lower.ends_with(".cmd")
+    {
+        "script"
+    } else {
+        // Anything else a user could reach here is an argfile - the picker
+        // only ever offers jars, start scripts, and the current target.
+        "argfile"
+    }
+}
+
+/// Re-runs import detection against an instance's existing `server/`
+/// folder and adopts whatever it finds as the launch target.
+///
+/// The point is that detection improves over time (installer jars, modern
+/// Forge/NeoForge argfiles, packs that ship only a `run.bat`) while
+/// already-imported instances keep whatever their import decided - an
+/// instance imported before a given fix stays broken, with re-importing
+/// the whole pack as the only way out. This is that way out.
+///
+/// Only blanks are filled in for loader/version metadata: those may have
+/// been corrected by hand, and a heuristic shouldn't overwrite a human.
+#[tauri::command]
+pub async fn redetect_instance_launch(state: State<'_, AppState>, id: String) -> Result<Instance, String> {
+    let instance = fetch_instance(&state, &id)
+        .await?
+        .ok_or_else(|| "Instance not found".to_string())?;
+
+    let server_dir = Path::new(&instance.server_directory).join("server");
+    if !server_dir.is_dir() {
+        return Err("This instance has no server folder to scan.".to_string());
+    }
+
+    let detected = tauri::async_runtime::spawn_blocking(move || importer::detect_from_dir(&server_dir))
+        .await
+        .map_err(|e| format!("Detection task failed: {e}"))?;
+
+    let launch_mode = detected.launch_mode().to_string();
+    let server_jar = detected.server_jar.clone().ok_or_else(|| {
+        "Nothing launchable was found in this instance's server folder - no server JAR, no          Forge/NeoForge argfile, and no start script. Check the folder manually."
+            .to_string()
+    })?;
+
+    let loader = if instance.loader == ServerLoader::Unknown {
+        detected.loader
+    } else {
+        instance.loader
+    };
+
+    sqlx::query(
+        "UPDATE instances
+         SET server_jar = ?, launch_mode = ?, loader = ?,
+             minecraft_version = COALESCE(minecraft_version, ?),
+             loader_version = COALESCE(loader_version, ?)
+         WHERE id = ?",
+    )
+    .bind(&server_jar)
+    .bind(&launch_mode)
+    .bind(loader.as_str())
+    .bind(&detected.minecraft_version)
+    .bind(&detected.loader_version)
+    .bind(&id)
+    .execute(&state.db)
+    .await
+    .map_err(|e| format!("Failed to update instance: {e}"))?;
+
+    let instance = fetch_instance(&state, &id)
+        .await?
+        .ok_or_else(|| "Instance not found".to_string())?;
+
+    if let Err(e) = write_instance_json(Path::new(&instance.server_directory), &instance).await {
+        tracing::warn!("Instance {id} re-detected, but instance.json update failed: {e}");
+    }
+
+    Ok(instance)
 }
 
 /// Updates the editable launch settings (Phase 7 Configuration tab): JAR,
@@ -305,17 +427,27 @@ pub async fn update_instance_settings(
     let jvm_args = serde_json::to_string(&request.jvm_args).unwrap_or_else(|_| "[]".to_string());
     let server_args = serde_json::to_string(&request.server_args).unwrap_or_else(|_| "[]".to_string());
 
-    // This form only ever offers a `.jar` to pick (see `list_server_jars`),
-    // so a manual edit here always means "launch this as a plain jar" -
-    // even if detection had previously set `launch_mode = 'argfile'` for a
-    // modern Forge/NeoForge install.
+    // The picker offers jars, start scripts, and whatever the instance is
+    // already set to (see `list_server_jars`), so the mode follows from
+    // what was chosen - an unrelated save (RAM, auto-restart) must not
+    // silently demote a working argfile or script instance to plain-jar.
+    let current = fetch_instance(&state, &id)
+        .await?
+        .ok_or_else(|| "Instance not found".to_string())?;
+    let launch_mode = launch_mode_for_target(
+        request.server_jar.as_deref(),
+        current.server_jar.as_deref(),
+        &current.launch_mode,
+    );
+
     let result = sqlx::query(
         "UPDATE instances
-         SET server_jar = ?, launch_mode = 'jar', jvm_args = ?, server_args = ?, min_ram_mb = ?, max_ram_mb = ?,
+         SET server_jar = ?, launch_mode = ?, jvm_args = ?, server_args = ?, min_ram_mb = ?, max_ram_mb = ?,
              auto_start = ?, auto_restart = ?
          WHERE id = ?",
     )
     .bind(&request.server_jar)
+    .bind(launch_mode)
     .bind(jvm_args)
     .bind(server_args)
     .bind(request.min_ram_mb)
@@ -523,4 +655,37 @@ pub async fn set_instance_schedules(
     fetch_instance(&state, &id)
         .await?
         .ok_or_else(|| "Instance not found".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::launch_mode_for_target;
+
+    /// The regression this exists for: an instance launched through its
+    /// pack's `run.bat` (or a Forge argfile) must survive a save from the
+    /// Configuration tab that only meant to change RAM.
+    #[test]
+    fn re_picking_the_current_target_preserves_its_mode() {
+        assert_eq!(launch_mode_for_target(Some("run.bat"), Some("run.bat"), "script"), "script");
+        assert_eq!(
+            launch_mode_for_target(
+                Some("libraries/net/neoforged/neoforge/21.1.72/win_args.txt"),
+                Some("libraries/net/neoforged/neoforge/21.1.72/win_args.txt"),
+                "argfile",
+            ),
+            "argfile",
+        );
+    }
+
+    #[test]
+    fn a_newly_picked_target_takes_the_mode_its_name_implies() {
+        assert_eq!(launch_mode_for_target(Some("server.jar"), Some("run.bat"), "script"), "jar");
+        assert_eq!(launch_mode_for_target(Some("run.sh"), Some("server.jar"), "jar"), "script");
+        assert_eq!(launch_mode_for_target(Some("start.bat"), None, "jar"), "script");
+    }
+
+    #[test]
+    fn clearing_the_target_falls_back_to_jar_mode() {
+        assert_eq!(launch_mode_for_target(None, Some("run.bat"), "script"), "jar");
+    }
 }

@@ -49,6 +49,8 @@ interface InstancesState {
   unlinkModrinthProject: (id: string) => Promise<Instance>;
   applyModpackUpdate: (id: string, versionId: string) => Promise<Instance>;
   installForgeServer: (id: string) => Promise<Instance>;
+  /** Re-runs import detection over an existing instance's server folder. */
+  redetectInstanceLaunch: (id: string) => Promise<Instance>;
   setInstanceSchedules: (
     id: string,
     restartSchedule: string | null,
@@ -184,6 +186,12 @@ export const useInstancesStore = create<InstancesState>((set, get) => ({
 
   installForgeServer: async (id) => {
     const updated = await api.installForgeServer(id);
+    set({ instances: get().instances.map((i) => (i.id === id ? updated : i)) });
+    return updated;
+  },
+
+  redetectInstanceLaunch: async (id) => {
+    const updated = await api.redetectInstanceLaunch(id);
     set({ instances: get().instances.map((i) => (i.id === id ? updated : i)) });
     return updated;
   },
