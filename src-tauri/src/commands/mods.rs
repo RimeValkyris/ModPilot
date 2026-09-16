@@ -4,6 +4,7 @@ use tauri::State;
 
 use super::instance::fetch_instance;
 use crate::models::ModInfo;
+use crate::mods::ModpackHealth;
 use crate::AppState;
 
 /// Rejects a mod filename containing anything that could escape the mods
@@ -99,4 +100,66 @@ pub async fn delete_mod(state: State<'_, AppState>, id: String, file_name: Strin
         .map_err(|e| format!("Failed to delete mod: {e}"))?;
 
     Ok(())
+}
+
+/// Reads every JAR in the instance's mods folder and reports what is wrong
+/// with the set as a whole - missing dependencies, duplicates, unreadable
+/// files, loader and Minecraft version mismatches, client-only mods.
+///
+/// Read-only: nothing is moved, renamed or deleted. Acting on a finding
+/// goes through `toggle_mod`/`delete_mod` as an explicit user action, so a
+/// health check can never be the thing that removes somebody's mod.
+///
+/// Cost scales with the number of JARs (each is a zip that must be opened),
+/// so the whole scan runs on the blocking pool and the frontend treats it
+/// as an on-demand action rather than something that runs on every render.
+#[tauri::command]
+pub async fn analyze_modpack_health(
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<ModpackHealth, String> {
+    let instance = fetch_instance(&state, &id)
+        .await?
+        .ok_or_else(|| "Instance not found".to_string())?;
+    let mods_dir = Path::new(&instance.server_directory).join("server").join("mods");
+    let loader = instance.loader.as_str().to_string();
+    let minecraft_version = instance.minecraft_version.clone();
+
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut metadata = Vec::new();
+
+        let entries = match std::fs::read_dir(&mods_dir) {
+            Ok(entries) => entries,
+            // A vanilla server legitimately has no mods folder; that is an
+            // empty report, not an error.
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                return Ok(crate::mods::analyze(
+                    Vec::new(),
+                    &loader,
+                    minecraft_version.as_deref(),
+                ))
+            }
+            Err(e) => return Err(format!("Failed to read mods folder: {e}")),
+        };
+
+        for entry in entries.flatten() {
+            let file_name = entry.file_name().to_string_lossy().to_string();
+            if !file_name.ends_with(".jar") && !file_name.ends_with(".jar.disabled") {
+                continue;
+            }
+            metadata.push(crate::mods::read_jar(&entry.path()));
+        }
+
+        // Stable, name-ordered output so the Mods tab does not reshuffle
+        // between scans.
+        metadata.sort_by(|a, b| a.file_name.cmp(&b.file_name));
+
+        Ok(crate::mods::analyze(
+            metadata,
+            &loader,
+            minecraft_version.as_deref(),
+        ))
+    })
+    .await
+    .map_err(|e| format!("Modpack scan failed: {e}"))?
 }

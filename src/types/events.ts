@@ -26,6 +26,15 @@ export interface ResourceAlertPayload {
   message: string;
 }
 
+/** Mirrors Rust's `CrashLoopPayload`, emitted as `instance-crash-loop` when
+ * auto-restart gives up. Raised regardless of the OS-notification setting. */
+export interface CrashLoopPayload {
+  instanceId: string;
+  instanceName: string;
+  crashCount: number;
+  message: string;
+}
+
 /** Mirrors Rust's `StuckStartingPayload`, emitted as `instance-stuck-starting`. */
 export interface StuckStartingPayload {
   instanceId: string;
@@ -36,3 +45,4 @@ export const LOG_EVENT = "instance-log";
 export const STUCK_STARTING_EVENT = "instance-stuck-starting";
 export const PLAYERS_EVENT = "instance-players-changed";
 export const RESOURCE_ALERT_EVENT = "instance-resource-alert";
+export const CRASH_LOOP_EVENT = "instance-crash-loop";

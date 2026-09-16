@@ -173,7 +173,7 @@ pub async fn update_instance_from_source(
 
     let instance_dir = PathBuf::from(&instance.server_directory);
     let server_dir = instance_dir.join("server");
-    let world_folder_name = super::diagnostics::detect_world_folder_name(&server_dir).await;
+    let world_folder_name = super::folders::detect_world_folder_name(&server_dir).await;
 
     // Back up before touching anything - the same safety net every other
     // update path gets.

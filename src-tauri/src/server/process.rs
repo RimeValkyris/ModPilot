@@ -423,7 +423,38 @@ fn maybe_auto_restart(
     })
 }
 
+/// Reports that auto-restart has given up on an instance.
+///
+/// Two channels, deliberately: an in-app event so the UI can show a
+/// persistent state the operator will still see when they come back to the
+/// window, and an OS notification so they find out while they are elsewhere.
+/// Only the second is gated on the notification setting - turning off
+/// desktop notifications should not make ModpackPilot's own UI go quiet
+/// about a server that has stopped trying to come back.
 async fn notify_crash_loop_gave_up(app: &AppHandle, db: &SqlitePool, instance_id: &str) {
+    let name: Option<String> = sqlx::query_scalar("SELECT name FROM instances WHERE id = ?")
+        .bind(instance_id)
+        .fetch_optional(db)
+        .await
+        .unwrap_or_default();
+    let name = name.unwrap_or_else(|| "Instance".to_string());
+
+    let crash_count = app.state::<AppState>().crash_tracker.count(instance_id).await;
+
+    let message = format!(
+        "{name} has crashed repeatedly and auto-restart has stopped trying. Check its logs and start it manually once fixed."
+    );
+
+    let _ = app.emit(
+        super::events::CRASH_LOOP_EVENT,
+        super::events::CrashLoopPayload {
+            instance_id: instance_id.to_string(),
+            instance_name: name.clone(),
+            crash_count,
+            message: message.clone(),
+        },
+    );
+
     let setting: Option<String> = sqlx::query_scalar(
         "SELECT value FROM application_settings WHERE key = 'notifications_enabled'",
     )
@@ -434,20 +465,11 @@ async fn notify_crash_loop_gave_up(app: &AppHandle, db: &SqlitePool, instance_id
         return;
     }
 
-    let name: Option<String> = sqlx::query_scalar("SELECT name FROM instances WHERE id = ?")
-        .bind(instance_id)
-        .fetch_optional(db)
-        .await
-        .unwrap_or_default();
-    let name = name.unwrap_or_else(|| "Instance".to_string());
-
     let _ = app
         .notification()
         .builder()
         .title("ModpackPilot")
-        .body(format!(
-            "{name} has crashed repeatedly and auto-restart has stopped trying. Check its logs and start it manually once fixed."
-        ))
+        .body(message)
         .show();
 }
 

@@ -6,7 +6,7 @@ use chrono::Utc;
 use tauri::{AppHandle, Emitter, State};
 use uuid::Uuid;
 
-use super::diagnostics::detect_world_folder_name;
+use super::folders::detect_world_folder_name;
 use super::import::INSTANCE_EXISTS_PREFIX;
 use super::instance::{fetch_instance, insert_instance, write_instance_json};
 use super::server::resolve_java_path;

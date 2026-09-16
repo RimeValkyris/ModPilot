@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type {
   CreateInstanceRequest,
   Instance,
+  LaunchHistoryEntry,
   UpdateInstanceSettingsRequest,
 } from "@/types/instance";
 import type {
@@ -10,9 +11,11 @@ import type {
   ImportSource,
 } from "@/types/import";
 import type { JavaInstallation } from "@/types/java";
-import type { DiskUsage, ResourceUsage } from "@/types/monitor";
-import type { WorldBackup } from "@/types/backup";
+import type { DiskUsage, PerformanceSample, ResourceUsage } from "@/types/monitor";
+import type { BackupVerification, RestoreOutcome, WorldBackup } from "@/types/backup";
 import type { ModInfo } from "@/types/mod";
+import type { ModpackHealth } from "@/types/modpackHealth";
+import type { DiagnosticReport } from "@/types/diagnostics";
 import type {
   ModpackUpdateCheck,
   ModrinthImportRequest,
@@ -86,6 +89,9 @@ export const api = {
   getAllResourceUsage: () => invoke<Record<string, ResourceUsage>>("get_all_resource_usage"),
 
   getSystemMemoryMb: () => invoke<number>("get_system_memory_mb"),
+
+  getPerformanceHistory: (id: string, hours: number) =>
+    invoke<PerformanceSample[]>("get_performance_history", { id, hours }),
   getDiskUsage: () => invoke<DiskUsage | null>("get_disk_usage"),
 
   listOnlinePlayers: (id: string) => invoke<string[]>("list_online_players", { id }),
@@ -135,7 +141,16 @@ export const api = {
   listWorldBackups: (id: string) => invoke<WorldBackup[]>("list_world_backups", { id }),
 
   restoreWorldBackup: (id: string, backupName: string) =>
-    invoke<void>("restore_world_backup", { id, backupName }),
+    invoke<RestoreOutcome>("restore_world_backup", { id, backupName }),
+
+  verifyWorldBackup: (id: string, backupName: string) =>
+    invoke<BackupVerification>("verify_world_backup", { id, backupName }),
+
+  listPreRestoreWorlds: (id: string) =>
+    invoke<WorldBackup[]>("list_pre_restore_worlds", { id }),
+
+  deletePreRestoreWorld: (id: string, folderName: string) =>
+    invoke<void>("delete_pre_restore_world", { id, folderName }),
 
   deleteWorldBackup: (id: string, backupName: string) =>
     invoke<void>("delete_world_backup", { id, backupName }),
@@ -147,6 +162,14 @@ export const api = {
     invoke<void>("write_player_list", { id, file, entries }),
 
   listMods: (id: string) => invoke<ModInfo[]>("list_mods", { id }),
+
+  analyzeModpackHealth: (id: string) =>
+    invoke<ModpackHealth>("analyze_modpack_health", { id }),
+
+  runDiagnostics: (id: string) => invoke<DiagnosticReport>("run_diagnostics", { id }),
+
+  getLaunchHistory: (id: string) =>
+    invoke<LaunchHistoryEntry[]>("get_launch_history", { id }),
 
   toggleMod: (id: string, fileName: string) => invoke<void>("toggle_mod", { id, fileName }),
 

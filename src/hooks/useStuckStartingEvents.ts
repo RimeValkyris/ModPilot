@@ -3,9 +3,11 @@ import { listen } from "@tauri-apps/api/event";
 import { toast } from "sonner";
 import { useInstancesStore } from "@/stores/instancesStore";
 import {
+  CRASH_LOOP_EVENT,
   LOG_EVENT,
   RESOURCE_ALERT_EVENT,
   STUCK_STARTING_EVENT,
+  type CrashLoopPayload,
   type LogLinePayload,
   type ResourceAlertPayload,
   type StuckStartingPayload,
@@ -50,10 +52,27 @@ export function useStuckStartingEvents() {
       unlistenAlert = fn;
     });
 
+    // Auto-restart giving up is the most consequential thing that can
+    // happen unattended - the server is down and staying down - so it is
+    // surfaced wherever the operator happens to be, not only on the
+    // instance's own page. Persistent, because a toast that auto-dismisses
+    // is exactly as good as no toast for something discovered later.
+    let unlistenCrashLoop: (() => void) | undefined;
+    listen<CrashLoopPayload>(CRASH_LOOP_EVENT, (event) => {
+      toast.error(`${event.payload.instanceName}: crash loop detected`, {
+        description: `Auto-restart gave up after ${event.payload.crashCount} consecutive crashes. Open its Diagnostics tab to see why.`,
+        duration: Infinity,
+        closeButton: true,
+      });
+    }).then((fn) => {
+      unlistenCrashLoop = fn;
+    });
+
     return () => {
       unlistenStuck?.();
       unlistenLog?.();
       unlistenAlert?.();
+      unlistenCrashLoop?.();
     };
   }, [markInstanceStuck, clearInstanceStuck]);
 }

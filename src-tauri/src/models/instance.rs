@@ -229,3 +229,23 @@ impl From<InstanceRow> for Instance {
         }
     }
 }
+
+/// One recorded run of a server, from the `launch_history` table.
+///
+/// The table has been written since the first migration and read by nothing
+/// until now - every crash, exit code and timestamp was already being
+/// recorded, just never shown.
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+#[serde(rename_all = "camelCase")]
+pub struct LaunchHistoryEntry {
+    pub id: String,
+    pub started_at: DateTime<Utc>,
+    /// `None` for the run that is still going.
+    pub stopped_at: Option<DateTime<Utc>>,
+    /// The process's exit code. Worth showing rather than reducing to
+    /// "crashed": 1 is a JVM that died on its own, while 137 on Linux is the
+    /// OS out-of-memory killer, which points somewhere completely different.
+    pub exit_code: Option<i64>,
+    /// `running` | `stopped` | `crashed`.
+    pub status: String,
+}

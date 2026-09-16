@@ -13,6 +13,7 @@ export interface UsageSample {
   diskPercent: number | null;
   pingMs: number | null;
   tps: number | null;
+  mspt: number | null;
   players: number | null;
 }
 
@@ -107,6 +108,7 @@ export const useResourceUsageStore = create<ResourceUsageState>((set, get) => ({
             diskPercent: usage.disk?.usedPercent ?? null,
             pingMs: usage.ping?.latencyMs ?? null,
             tps: usage.tps,
+            mspt: usage.mspt,
             // The ping is authoritative when it answered; the console roster
             // covers the window before the server accepts connections.
             players: usage.ping?.playersOnline ?? usage.playersTracked,

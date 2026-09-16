@@ -1,5 +1,6 @@
 mod commands;
 mod database;
+mod diagnostics;
 mod filesystem;
 mod ftb;
 mod importer;
@@ -8,6 +9,7 @@ mod loader;
 mod logging;
 mod models;
 mod modrinth;
+mod mods;
 mod packs;
 mod server;
 
@@ -21,6 +23,10 @@ pub struct AppState {
     pub paths: AppPaths,
     pub processes: server::ProcessManager,
     pub resource_monitor: server::ResourceMonitor,
+    /// A second sampler used only by the performance-history recorder. See
+    /// `commands::monitor::collect_all_resource_usage` for why the two must
+    /// not share one.
+    pub history_monitor: server::ResourceMonitor,
     pub crash_tracker: server::CrashTracker,
     pub schedules: server::ScheduleTracker,
     pub players: server::PlayerTracker,
@@ -102,6 +108,7 @@ pub fn run() {
                 paths,
                 processes: server::ProcessManager::new(),
                 resource_monitor: server::ResourceMonitor::new(),
+                history_monitor: server::ResourceMonitor::new(),
                 crash_tracker: server::CrashTracker::new(),
                 schedules: server::ScheduleTracker::new(),
                 players: server::PlayerTracker::new(),
@@ -170,6 +177,7 @@ pub fn run() {
             server::spawn_scheduler(handle.clone());
             server::spawn_alerts(handle.clone());
             server::spawn_tps_poller(handle.clone());
+            server::spawn_history(handle.clone());
 
             setup_tray(app)?;
 
@@ -203,22 +211,29 @@ pub fn run() {
             commands::logs::read_latest_log,
             commands::monitor::get_resource_usage,
             commands::monitor::get_all_resource_usage,
+            commands::monitor::get_performance_history,
             commands::monitor::get_system_memory_mb,
             commands::monitor::get_disk_usage,
             commands::monitor::list_online_players,
-            commands::diagnostics::get_app_logs_dir,
-            commands::diagnostics::open_managed_folder,
-            commands::diagnostics::export_app_log,
-            commands::diagnostics::get_instance_logs_dir,
-            commands::diagnostics::get_instance_subfolder,
-            commands::diagnostics::export_instance_log,
+            commands::diagnostics::run_diagnostics,
+            commands::diagnostics::get_launch_history,
+            commands::folders::get_app_logs_dir,
+            commands::folders::open_managed_folder,
+            commands::folders::export_app_log,
+            commands::folders::get_instance_logs_dir,
+            commands::folders::get_instance_subfolder,
+            commands::folders::export_instance_log,
             commands::backup::create_world_backup,
             commands::backup::list_world_backups,
             commands::backup::restore_world_backup,
+            commands::backup::verify_world_backup,
+            commands::backup::list_pre_restore_worlds,
+            commands::backup::delete_pre_restore_world,
             commands::backup::delete_world_backup,
             commands::playerlist::read_player_list,
             commands::playerlist::write_player_list,
             commands::mods::list_mods,
+            commands::mods::analyze_modpack_health,
             commands::mods::toggle_mod,
             commands::mods::delete_mod,
             commands::settings::get_app_setting,

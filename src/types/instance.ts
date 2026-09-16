@@ -84,3 +84,15 @@ export const SERVER_LOADERS: ServerLoader[] = [
   "fabric",
   "quilt",
 ];
+
+/** Mirrors Rust's `LaunchHistoryEntry`. */
+export interface LaunchHistoryEntry {
+  id: string;
+  startedAt: string;
+  /** Null for the run that is still going. */
+  stoppedAt: string | null;
+  /** Shown rather than reduced to "crashed": 1 is the JVM dying on its own,
+   * 137 on Linux is the OS out-of-memory killer, which points elsewhere. */
+  exitCode: number | null;
+  status: "running" | "stopped" | "crashed";
+}

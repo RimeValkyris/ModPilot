@@ -31,7 +31,37 @@ export interface ResourceUsage {
   disk: DiskUsage | null;
   ping: ServerPing | null;
   tps: number | null;
+  /** Milliseconds per tick. More diagnostic than TPS, which saturates at 20
+   * and so reads the same for a comfortable server and one about to fall
+   * over. Null when the server reported a rate without a time. */
+  mspt: number | null;
   /** Size of the console-derived roster, used when the ping didn't report a
    * player count. */
   playersTracked: number;
+  health: ServerHealth;
+}
+
+/** Mirrors Rust's `HealthStatus`. `unknown` means the server isn't running,
+ * not that something went wrong. */
+export type HealthStatus = "critical" | "warning" | "healthy" | "unknown";
+
+/** Mirrors Rust's `ServerHealth`. `reasons` is empty when nothing is wrong -
+ * a verdict is never shown without what produced it. */
+export interface ServerHealth {
+  status: HealthStatus;
+  reasons: string[];
+}
+
+/** Mirrors Rust's `PerformanceSample` - one row of recorded history.
+ *
+ * Nulls mean "not measurable at that moment", so a chart draws a gap rather
+ * than a dip to zero. */
+export interface PerformanceSample {
+  recordedAt: string;
+  cpuPercent: number;
+  memoryMb: number;
+  tps: number | null;
+  mspt: number | null;
+  players: number | null;
+  pingMs: number | null;
 }

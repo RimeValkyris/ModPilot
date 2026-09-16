@@ -7,7 +7,7 @@ mod mod_info;
 mod modrinth;
 mod resource_usage;
 
-pub use backup::WorldBackup;
+pub use backup::{BackupVerification, RestoreOutcome, WorldBackup};
 pub use ftb::{
     FtbImportRequest, FtbPack, FtbTarget, FtbUpdateCheck, FtbVersionManifest, FtbVersionPreview,
     FtbVersionSummary,
@@ -15,7 +15,7 @@ pub use ftb::{
 pub(crate) use ftb::FtbSearchResponse;
 pub use import::{DetectedServerInfo, ImportInstanceRequest, ImportSource};
 pub use instance::{
-    CreateInstanceRequest, Instance, InstanceRow, ServerLoader, ServerStatus,
+    CreateInstanceRequest, Instance, InstanceRow, LaunchHistoryEntry, ServerLoader, ServerStatus,
     UpdateInstanceSettingsRequest,
 };
 pub use java_installation::{DetectedJava, JavaInstallation, JavaInstallationRow};
@@ -26,4 +26,4 @@ pub use modrinth::{
     ModrinthSearchHit, ModrinthVersion, ModrinthVersionPreview,
 };
 pub(crate) use modrinth::{ModrinthSearchResponse, ModrinthVersionFile};
-pub use resource_usage::{DiskUsage, ResourceUsage, ServerPing};
+pub use resource_usage::{DiskUsage, PerformanceSample, ResourceUsage, ServerPing};

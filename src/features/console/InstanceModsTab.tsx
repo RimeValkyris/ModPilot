@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Trash2 } from "lucide-react";
+import { AlertTriangle, Trash2, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
@@ -18,12 +18,32 @@ import { api } from "@/lib/tauri";
 import { formatFileSize } from "@/lib/format";
 import type { Instance } from "@/types/instance";
 import type { ModInfo } from "@/types/mod";
+import type { ModpackHealth, Severity } from "@/types/modpackHealth";
+import { ModpackHealthCard } from "@/features/console/ModpackHealthCard";
+import { cn } from "@/lib/utils";
 
 export function InstanceModsTab({ instance }: { instance: Instance }) {
   const [mods, setMods] = useState<ModInfo[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [pendingDelete, setPendingDelete] = useState<ModInfo | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  /** The worst severity each JAR was implicated in by the last health
+   * check, so a problem found in the report is visible against the mod it
+   * concerns rather than only in the report. Empty until a check is run. */
+  const [severityByFile, setSeverityByFile] = useState<Record<string, Severity>>({});
+
+  function handleHealthResult(health: ModpackHealth) {
+    const next: Record<string, Severity> = {};
+    // Findings arrive most-serious-first, so the first mention of a file is
+    // already its worst severity.
+    for (const finding of health.findings) {
+      if (finding.severity === "info") continue;
+      for (const fileName of finding.fileNames) {
+        if (next[fileName] === undefined) next[fileName] = finding.severity;
+      }
+    }
+    setSeverityByFile(next);
+  }
 
   async function refresh() {
     setIsLoading(true);
@@ -72,6 +92,8 @@ export function InstanceModsTab({ instance }: { instance: Instance }) {
 
   return (
     <div className="flex flex-col gap-3">
+      <ModpackHealthCard instance={instance} onResult={handleHealthResult} />
+
       <div className="flex items-center justify-between gap-2">
         <p className="text-sm text-muted-foreground">
           Disabling a mod renames it to <code>.jar.disabled</code> rather than
@@ -103,7 +125,21 @@ export function InstanceModsTab({ instance }: { instance: Instance }) {
             >
               <div className="flex items-center gap-2 overflow-hidden">
                 <Switch checked={mod.enabled} onCheckedChange={() => handleToggle(mod)} />
-                <span className="truncate" title={mod.displayName}>
+                {severityByFile[mod.fileName] === "critical" ? (
+                  <XCircle className="size-4 shrink-0 text-destructive" aria-label="Critical issue" />
+                ) : severityByFile[mod.fileName] === "warning" ? (
+                  <AlertTriangle
+                    className="size-4 shrink-0 text-amber-600 dark:text-amber-400"
+                    aria-label="Warning"
+                  />
+                ) : null}
+                <span
+                  className={cn(
+                    "truncate",
+                    severityByFile[mod.fileName] === "critical" && "text-destructive",
+                  )}
+                  title={mod.displayName}
+                >
                   {mod.displayName}
                 </span>
                 {!mod.enabled && <Badge variant="outline">Disabled</Badge>}

@@ -3,6 +3,7 @@
 // command function.
 pub mod backup;
 pub mod diagnostics;
+pub mod folders;
 pub mod ftb;
 pub mod import;
 pub mod instance;

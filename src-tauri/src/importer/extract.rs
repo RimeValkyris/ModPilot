@@ -36,24 +36,51 @@ fn safe_join(dest_root: &Path, entry_name: &str) -> Option<PathBuf> {
 /// Extracts a ZIP archive into `dest_root`, skipping (and reporting) any
 /// entry that would escape the destination directory.
 ///
+/// A shared wrapping folder is stripped (see `detect_wrapper_folder`), so
+/// the extracted layout matches what `detect_from_zip` already showed the
+/// user during review. That is right for an *import*; a restore must not
+/// reshape what it restores, so it uses [`extract_zip_verbatim`] instead.
+///
 /// This only ever writes bytes to disk - extracted `.bat`/`.sh` files are
 /// never executed here or anywhere else in the import flow.
 pub fn extract_zip_safely(zip_path: &Path, dest_root: &Path) -> std::io::Result<Vec<String>> {
+    extract_zip_inner(zip_path, dest_root, true)
+}
+
+/// Extracts a ZIP archive into `dest_root` exactly as it was stored, with
+/// the same zip-slip protection as [`extract_zip_safely`] but no wrapper
+/// folder stripping.
+///
+/// Used for world-backup restores. A world whose every file happens to sit
+/// under one top-level folder (a `region/`-only save, say) would otherwise
+/// have that folder silently dissolved, turning a restore into a subtly
+/// different world than the one that was backed up.
+pub fn extract_zip_verbatim(zip_path: &Path, dest_root: &Path) -> std::io::Result<Vec<String>> {
+    extract_zip_inner(zip_path, dest_root, false)
+}
+
+fn extract_zip_inner(
+    zip_path: &Path,
+    dest_root: &Path,
+    strip_wrapper: bool,
+) -> std::io::Result<Vec<String>> {
     let file = File::open(zip_path)?;
     let mut archive =
         ZipArchive::new(file).map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
 
-    // Detect a shared wrapping folder (see `detect_wrapper_folder`) up front
-    // from the file entries alone, so it can be stripped as everything is
-    // written - the extracted layout needs to match what `detect_from_zip`
-    // already showed the user during review.
-    let file_names: Vec<String> = (0..archive.len())
-        .filter_map(|i| {
-            let entry = archive.by_index(i).ok()?;
-            (!entry.is_dir()).then(|| entry.name().replace('\\', "/"))
-        })
-        .collect();
-    let wrapper_prefix = detect_wrapper_folder(&file_names).map(|w| format!("{w}/"));
+    // Detected up front from the file entries alone, so it can be stripped
+    // as everything is written rather than in a second pass.
+    let wrapper_prefix = if strip_wrapper {
+        let file_names: Vec<String> = (0..archive.len())
+            .filter_map(|i| {
+                let entry = archive.by_index(i).ok()?;
+                (!entry.is_dir()).then(|| entry.name().replace('\\', "/"))
+            })
+            .collect();
+        detect_wrapper_folder(&file_names).map(|w| format!("{w}/"))
+    } else {
+        None
+    };
 
     let mut warnings = Vec::new();
 
@@ -89,6 +116,55 @@ pub fn extract_zip_safely(zip_path: &Path, dest_root: &Path) -> std::io::Result<
     }
 
     Ok(warnings)
+}
+
+/// What [`verify_zip`] found in an archive it read all the way through.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ZipContents {
+    pub file_count: u64,
+    pub uncompressed_bytes: u64,
+}
+
+/// Reads every byte of every entry in an archive to prove it can actually
+/// be extracted, without writing anything.
+///
+/// Draining each entry to a sink is what makes this a real check rather
+/// than a directory listing: the `zip` crate validates an entry's CRC32
+/// when its reader hits EOF, so a truncated or bit-rotted archive fails
+/// here instead of halfway through overwriting somebody's world.
+///
+/// The cost is reading (not writing) the archive once, which is why this is
+/// run on demand and immediately after a backup is written, rather than for
+/// every row of a backup listing.
+pub fn verify_zip(zip_path: &Path) -> std::io::Result<ZipContents> {
+    let file = File::open(zip_path)?;
+    let mut archive =
+        ZipArchive::new(file).map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+
+    let mut contents = ZipContents::default();
+
+    for i in 0..archive.len() {
+        let mut entry = archive
+            .by_index(i)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+        if entry.is_dir() {
+            continue;
+        }
+        // An entry that escapes its destination would be skipped on
+        // extraction, so an archive full of them would "verify" into
+        // nothing. Fail the whole archive instead.
+        if safe_join(Path::new(""), &entry.name().replace('\\', "/")).is_none() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("Archive contains an unsafe entry path: {}", entry.name()),
+            ));
+        }
+        let copied = std::io::copy(&mut entry, &mut std::io::sink())?;
+        contents.file_count += 1;
+        contents.uncompressed_bytes += copied;
+    }
+
+    Ok(contents)
 }
 
 /// Zips a directory tree into `dest_zip` - used for world backups. Not
@@ -174,4 +250,118 @@ pub fn copy_dir_recursive(src_root: &Path, dest_root: &Path) -> std::io::Result<
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A throwaway directory under the OS temp dir, removed on drop so a
+    /// failing test can't leave a tree behind.
+    struct TempDir(PathBuf);
+
+    impl TempDir {
+        fn new(tag: &str) -> Self {
+            let unique = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos();
+            let path = std::env::temp_dir().join(format!("mpp-test-{tag}-{unique}"));
+            std::fs::create_dir_all(&path).unwrap();
+            Self(path)
+        }
+        fn path(&self) -> &Path {
+            &self.0
+        }
+    }
+
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn write(path: &Path, contents: &[u8]) {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, contents).unwrap();
+    }
+
+    /// The round trip a world backup actually performs.
+    #[test]
+    fn zips_verifies_and_extracts_a_tree() {
+        let dir = TempDir::new("roundtrip");
+        let world = dir.path().join("world");
+        write(&world.join("level.dat"), b"root file");
+        write(&world.join("region/r.0.0.mca"), b"chunk data");
+        write(&world.join("playerdata/steve.dat"), b"player");
+
+        let zip_path = dir.path().join("backup.zip");
+        create_zip_from_dir(&world, &zip_path).unwrap();
+
+        let contents = verify_zip(&zip_path).unwrap();
+        assert_eq!(contents.file_count, 3);
+        assert_eq!(contents.uncompressed_bytes, 9 + 10 + 6);
+
+        let restored = dir.path().join("restored");
+        extract_zip_verbatim(&zip_path, &restored).unwrap();
+        assert_eq!(std::fs::read(restored.join("level.dat")).unwrap(), b"root file");
+        assert_eq!(
+            std::fs::read(restored.join("region/r.0.0.mca")).unwrap(),
+            b"chunk data"
+        );
+    }
+
+    /// A truncated archive must fail verification, which is what keeps a
+    /// restore from starting at all - see `commands::backup::restore_world_backup`.
+    #[test]
+    fn verification_rejects_a_truncated_archive() {
+        let dir = TempDir::new("truncated");
+        let world = dir.path().join("world");
+        write(&world.join("level.dat"), &vec![7u8; 4096]);
+
+        let zip_path = dir.path().join("backup.zip");
+        create_zip_from_dir(&world, &zip_path).unwrap();
+        assert!(verify_zip(&zip_path).is_ok());
+
+        // Lop off the tail, as a half-written or bit-rotted file would be.
+        let bytes = std::fs::read(&zip_path).unwrap();
+        std::fs::write(&zip_path, &bytes[..bytes.len() / 2]).unwrap();
+
+        assert!(verify_zip(&zip_path).is_err(), "truncated archive verified");
+    }
+
+    /// The whole reason restore doesn't share the import extractor: a world
+    /// whose files all sit under one folder must keep that folder.
+    #[test]
+    fn verbatim_extraction_keeps_a_single_top_level_folder() {
+        let dir = TempDir::new("wrapper");
+        let src = dir.path().join("src");
+        write(&src.join("region/r.0.0.mca"), b"only region");
+        write(&src.join("region/r.0.1.mca"), b"more region");
+
+        let zip_path = dir.path().join("w.zip");
+        create_zip_from_dir(&src, &zip_path).unwrap();
+
+        // The import path treats the shared folder as a wrapper and strips it.
+        let imported = dir.path().join("imported");
+        extract_zip_safely(&zip_path, &imported).unwrap();
+        assert!(imported.join("r.0.0.mca").is_file());
+
+        // The restore path must not.
+        let restored = dir.path().join("restored");
+        extract_zip_verbatim(&zip_path, &restored).unwrap();
+        assert!(restored.join("region/r.0.0.mca").is_file());
+    }
+
+    #[test]
+    fn rejects_paths_that_escape_the_destination() {
+        let root = Path::new("/instances/demo");
+        assert!(safe_join(root, "../../etc/passwd").is_none());
+        assert!(safe_join(root, "region/../../../x").is_none());
+        assert!(safe_join(root, "C:/windows/system32").is_none());
+        assert_eq!(
+            safe_join(root, "region/r.0.0.mca"),
+            Some(root.join("region").join("r.0.0.mca"))
+        );
+    }
 }

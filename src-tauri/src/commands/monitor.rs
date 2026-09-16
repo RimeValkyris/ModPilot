@@ -4,7 +4,7 @@ use std::path::Path;
 use sysinfo::System;
 use tauri::State;
 
-use crate::models::{Instance, InstanceRow, ResourceUsage};
+use crate::models::{Instance, InstanceRow, PerformanceSample, ResourceUsage};
 use crate::server::ping_server;
 use crate::AppState;
 
@@ -36,8 +36,22 @@ async fn enrich(
     let port = state.ports.get(&instance.id, instance_dir).await;
     usage.ping = ping_server(port).await;
 
-    usage.tps = state.tps.get(&instance.id).await;
+    if let Some(reading) = state.tps.get(&instance.id).await {
+        usage.tps = Some(reading.tps);
+        usage.mspt = reading.mspt;
+    }
     usage.players_tracked = state.players.list(&instance.id).await.len() as u32;
+
+    // Last, so it judges the fully enriched sample rather than the
+    // process-only one.
+    usage.health = crate::server::evaluate_health(
+        usage.is_running,
+        usage.cpu_percent,
+        usage.memory_mb,
+        Some(instance.max_ram_mb),
+        usage.tps,
+        usage.mspt,
+    );
 }
 
 /// Reports the full dashboard picture for one instance, or an all-zero "not
@@ -80,6 +94,25 @@ pub async fn get_resource_usage(state: State<'_, AppState>, id: String) -> Resul
 pub async fn get_all_resource_usage(
     state: State<'_, AppState>,
 ) -> Result<HashMap<String, ResourceUsage>, String> {
+    collect_all_resource_usage(&state, &state.resource_monitor).await
+}
+
+/// The body of [`get_all_resource_usage`], parameterized by which
+/// [`ResourceMonitor`] does the CPU sampling.
+///
+/// The parameter exists because `sysinfo` derives CPU percentage from the
+/// delta between two refreshes of the *same* `System`. Two callers sharing
+/// one monitor therefore corrupt each other: the history recorder running a
+/// moment after a dashboard poll would measure CPU over a few milliseconds
+/// (reading 0, or a meaningless spike) and reset the baseline the next
+/// dashboard poll needed. Giving each its own monitor makes both intervals
+/// honest - and the recorder's 60-second delta is the better average for a
+/// history series anyway. Everything else here is shared, so the two still
+/// agree on memory, ping, TPS and players.
+pub(crate) async fn collect_all_resource_usage(
+    state: &State<'_, AppState>,
+    monitor: &crate::server::ResourceMonitor,
+) -> Result<HashMap<String, ResourceUsage>, String> {
     let snapshot = state.processes.running_snapshot().await;
     if snapshot.is_empty() {
         return Ok(HashMap::new());
@@ -101,11 +134,10 @@ pub async fn get_all_resource_usage(
     // it happens up front; only the independent I/O below is parallelized.
     let mut sampled = Vec::with_capacity(snapshot.len());
     for (id, pid, started_at) in snapshot {
-        sampled.push((id, state.resource_monitor.sample(pid, started_at).await));
+        sampled.push((id, monitor.sample(pid, started_at).await));
     }
 
     let enriched = futures::future::join_all(sampled.into_iter().map(|(id, mut usage)| {
-        let state = &state;
         let instances = &instances;
         async move {
             if let Some(instance) = instances.get(&id) {
@@ -149,4 +181,48 @@ pub async fn list_online_players(
     id: String,
 ) -> Result<Vec<String>, String> {
     Ok(state.players.list(&id).await)
+}
+
+/// How far back `get_performance_history` will look, regardless of what the
+/// caller asks for. A guard against a bad argument turning into a query
+/// that returns a month of rows into the webview.
+const MAX_HISTORY_HOURS: i64 = 24 * 30;
+
+/// Caps the number of rows returned. At one sample per minute, this is a
+/// little over a week of continuous uptime - past which a line chart a few
+/// hundred pixels wide has more points than pixels anyway.
+const MAX_HISTORY_ROWS: i64 = 10_000;
+
+/// Reads an instance's recorded performance history, oldest first.
+///
+/// Unlike `get_resource_usage`, this works for a stopped instance - that is
+/// most of the point. "What was it doing just before it died?" is only
+/// answerable after the fact.
+#[tauri::command]
+pub async fn get_performance_history(
+    state: State<'_, AppState>,
+    id: String,
+    hours: i64,
+) -> Result<Vec<PerformanceSample>, String> {
+    let hours = hours.clamp(1, MAX_HISTORY_HOURS);
+    let cutoff = chrono::Utc::now() - chrono::Duration::hours(hours);
+
+    // Newest-first in SQL so the LIMIT keeps the most *recent* rows when a
+    // long window overflows it, then reversed for charting.
+    let mut samples = sqlx::query_as::<_, PerformanceSample>(
+        "SELECT recorded_at, cpu_percent, memory_mb, tps, mspt, players, ping_ms
+         FROM performance_samples
+         WHERE instance_id = ? AND recorded_at >= ?
+         ORDER BY recorded_at DESC
+         LIMIT ?",
+    )
+    .bind(&id)
+    .bind(cutoff)
+    .bind(MAX_HISTORY_ROWS)
+    .fetch_all(&state.db)
+    .await
+    .map_err(|e| format!("Failed to read performance history: {e}"))?;
+
+    samples.reverse();
+    Ok(samples)
 }

@@ -55,6 +55,18 @@ impl CrashTracker {
         record.count <= MAX_CONSECUTIVE_CRASHES
     }
 
+    /// How many consecutive crashes are currently counted against an
+    /// instance. Used to state the number when reporting a crash loop,
+    /// rather than the UI having to repeat the threshold constant.
+    pub async fn count(&self, instance_id: &str) -> u32 {
+        self.records
+            .lock()
+            .await
+            .get(instance_id)
+            .map(|r| r.count)
+            .unwrap_or(0)
+    }
+
     /// Clears an instance's crash count - called once it successfully
     /// reaches RUNNING, so a server that crashes occasionally but recovers
     /// fine isn't penalized by crashes from long before.

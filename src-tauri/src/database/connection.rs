@@ -38,3 +38,75 @@ pub async fn init_pool(db_path: &Path) -> Result<SqlitePool, sqlx::Error> {
 
     Ok(pool)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Runs the real migration set against a fresh database.
+    ///
+    /// The migrations are embedded at compile time, so a broken one is not a
+    /// compile error - it is a startup failure on a user's machine, after
+    /// the release is out. This is the only place that catches it.
+    #[tokio::test]
+    async fn migrations_apply_to_a_fresh_database() {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("mpp-db-test-{unique}"));
+        std::fs::create_dir_all(&dir).unwrap();
+        let db_path = dir.join("modpackpilot.db");
+
+        let pool = init_pool(&db_path).await.expect("migrations should apply");
+
+        // Running twice must be a no-op, since every startup does it.
+        drop(pool);
+        let pool = init_pool(&db_path).await.expect("migrations should be idempotent");
+
+        // The performance history table added in 0009 has to actually work,
+        // including its nullable metrics - a null TPS is the normal case for
+        // a loader with no tick-rate command.
+        sqlx::query(
+            "INSERT INTO instances (id, name, loader, server_directory, created_at)
+             VALUES ('i1', 'Test', 'forge', '/tmp/i1', '2026-01-01T00:00:00Z')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "INSERT INTO performance_samples
+             (instance_id, recorded_at, cpu_percent, memory_mb, tps, mspt, players, ping_ms)
+             VALUES ('i1', '2026-01-01T00:01:00Z', 42.5, 4096.0, NULL, NULL, 3, NULL)",
+        )
+        .execute(&pool)
+        .await
+        .expect("performance_samples should accept null metrics");
+
+        let (cpu, tps, players): (f64, Option<f64>, Option<i64>) = sqlx::query_as(
+            "SELECT cpu_percent, tps, players FROM performance_samples WHERE instance_id = 'i1'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(cpu, 42.5);
+        assert_eq!(tps, None, "null must round-trip as null, not as zero");
+        assert_eq!(players, Some(3));
+
+        // Deleting the instance must take its history with it, or the table
+        // grows forever with rows nothing can reach.
+        sqlx::query("DELETE FROM instances WHERE id = 'i1'")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let remaining: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM performance_samples")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(remaining, 0, "samples should cascade with their instance");
+
+        drop(pool);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}

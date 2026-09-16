@@ -318,14 +318,28 @@ pub const TPS_POLL_INTERVAL: Duration = Duration::from_secs(10);
 /// their own output.
 const TPS_REPLY_WINDOW: Duration = Duration::from_secs(3);
 
-struct TpsReading {
-    tps: f32,
+/// One tick-rate report from a server.
+///
+/// MSPT is the more diagnostic of the two numbers - TPS saturates at 20 and
+/// so says nothing about a server that is keeping up comfortably versus one
+/// that is one heavy chunk away from falling behind, while milliseconds per
+/// tick keeps moving across that whole range. Both are kept because TPS is
+/// what operators recognize.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TickReading {
+    pub tps: f32,
+    /// `None` when the server reported a tick rate without a tick time.
+    pub mspt: Option<f32>,
+}
+
+struct StoredReading {
+    reading: TickReading,
     at: Instant,
 }
 
 #[derive(Default)]
 struct TpsState {
-    reading: Option<TpsReading>,
+    reading: Option<StoredReading>,
     /// When the poller last sent a tick-rate command to this instance.
     requested_at: Option<Instant>,
 }
@@ -379,19 +393,22 @@ impl TpsTracker {
 
         // The value is worth recording either way - a manually requested
         // reading is just as true as a polled one.
-        if let Some(tps) = parse_tps(line) {
-            state.reading = Some(TpsReading { tps, at: Instant::now() });
+        if let Some(reading) = parse_tick_reading(line) {
+            state.reading = Some(StoredReading {
+                reading,
+                at: Instant::now(),
+            });
         }
 
         ours
     }
 
-    /// The last reported tick rate, or `None` if the server has never
-    /// answered or has stopped answering.
-    pub async fn get(&self, instance_id: &str) -> Option<f32> {
+    /// The last reported tick rate and tick time, or `None` if the server
+    /// has never answered or has stopped answering.
+    pub async fn get(&self, instance_id: &str) -> Option<TickReading> {
         let map = self.by_instance.read().await;
-        let reading = map.get(instance_id)?.reading.as_ref()?;
-        (reading.at.elapsed() < TPS_MAX_AGE).then_some(reading.tps)
+        let stored = map.get(instance_id)?.reading.as_ref()?;
+        (stored.at.elapsed() < TPS_MAX_AGE).then_some(stored.reading)
     }
 
     pub async fn clear(&self, instance_id: &str) {
@@ -431,7 +448,7 @@ fn supports_tick_query(minecraft_version: &str) -> bool {
 
 /// Whether a line is part of a tick-rate command's output.
 ///
-/// Broader than [`parse_tps`] on purpose: vanilla's `/tick query` answers
+/// Broader than [`parse_tick_reading`] on purpose: vanilla's `/tick query` answers
 /// with three lines and only the middle one carries a number, so matching
 /// solely on the value would leave the other two spilling into the console
 /// every poll - exactly what swallowing is meant to prevent.
@@ -443,20 +460,27 @@ fn is_tps_output(line: &str) -> bool {
         || line.contains("Percentiles:")
 }
 
-/// Pulls a tick rate out of a console line.
+/// Pulls a tick rate and tick time out of a console line.
 ///
 /// Handles the two shapes a server can answer in:
 ///
 /// - Forge/NeoForge: `Overall: Mean tick time: 4.2 ms. Mean TPS: 19.8`
 ///   (and the per-dimension lines that precede it, which carry the same
-///   `Mean TPS:` marker - the overall line arrives last and so wins).
+///   `Mean TPS:` marker - the overall line arrives last and so wins). Both
+///   numbers are stated outright.
 /// - Vanilla 1.20.3+: `Target tick rate: 20.0 per second. Average time
 ///   per tick: 4.2ms (Target: 50.0ms)` - no TPS field at all, so the rate
-///   is derived from the average tick time, capped at the target rate the
-///   same way the game does.
-fn parse_tps(line: &str) -> Option<f32> {
+///   is derived from the tick time, capped at the target rate the same way
+///   the game does.
+fn parse_tick_reading(line: &str) -> Option<TickReading> {
     if let Some(rest) = line.rsplit_once("Mean TPS:").map(|(_, rest)| rest) {
-        return parse_leading_f32(rest).filter(|tps| (0.0..=100.0).contains(tps));
+        let tps = parse_leading_f32(rest).filter(|tps| (0.0..=100.0).contains(tps))?;
+        // The same line usually carries the tick time before the TPS.
+        let mspt = line
+            .split_once("Mean tick time:")
+            .and_then(|(_, rest)| parse_leading_f32(rest))
+            .filter(|ms| *ms >= 0.0);
+        return Some(TickReading { tps, mspt });
     }
 
     // Vanilla reports tick *time*; 20 ticks/s is the ceiling, and a server
@@ -467,7 +491,10 @@ fn parse_tps(line: &str) -> Option<f32> {
         if ms <= 0.0 {
             return None;
         }
-        return Some((1000.0 / ms).min(20.0));
+        return Some(TickReading {
+            tps: (1000.0 / ms).min(20.0),
+            mspt: Some(ms),
+        });
     }
 
     None
@@ -523,14 +550,19 @@ mod tests {
 
     #[test]
     fn parses_forge_tps_reports() {
-        assert_eq!(
-            parse_tps("[21:03:11] [Server thread/INFO]: Overall: Mean tick time: 4.235 ms. Mean TPS: 19.85"),
-            Some(19.85)
-        );
-        assert_eq!(
-            parse_tps("Dim  0 (minecraft:overworld): Mean tick time: 3.1 ms. Mean TPS: 20.00"),
-            Some(20.0)
-        );
+        let overall = parse_tick_reading(
+            "[21:03:11] [Server thread/INFO]: Overall: Mean tick time: 4.235 ms. Mean TPS: 19.85",
+        )
+        .unwrap();
+        assert_eq!(overall.tps, 19.85);
+        // Forge states the tick time outright, so it must not be discarded.
+        assert_eq!(overall.mspt, Some(4.235));
+
+        let per_dim =
+            parse_tick_reading("Dim  0 (minecraft:overworld): Mean tick time: 3.1 ms. Mean TPS: 20.00")
+                .unwrap();
+        assert_eq!(per_dim.tps, 20.0);
+        assert_eq!(per_dim.mspt, Some(3.1));
     }
 
     #[test]
@@ -538,12 +570,14 @@ mod tests {
         // Vanilla prints these on their own lines, so the test must too -
         // concatenating them would hide the fact that only one carries a
         // value.
-        let healthy = parse_tps("Average time per tick: 4.2ms (Target: 50.0ms)").unwrap();
-        assert!((healthy - 20.0).abs() < f32::EPSILON);
+        let healthy = parse_tick_reading("Average time per tick: 4.2ms (Target: 50.0ms)").unwrap();
+        assert!((healthy.tps - 20.0).abs() < f32::EPSILON);
+        assert_eq!(healthy.mspt, Some(4.2));
 
         // A struggling one: 100 ms per tick is 10 TPS.
-        let lagging = parse_tps("Average time per tick: 100.0ms (Target: 50.0ms)").unwrap();
-        assert!((lagging - 10.0).abs() < 0.01, "got {lagging}");
+        let lagging = parse_tick_reading("Average time per tick: 100.0ms (Target: 50.0ms)").unwrap();
+        assert!((lagging.tps - 10.0).abs() < 0.01, "got {}", lagging.tps);
+        assert_eq!(lagging.mspt, Some(100.0));
     }
 
     /// Every line `/tick query` prints must be swallowed, not just the one
@@ -565,12 +599,15 @@ mod tests {
 
     #[test]
     fn ignores_unrelated_and_nonsense_lines() {
-        assert_eq!(parse_tps("[21:03:11] [Server thread/INFO]: Done (12.3s)!"), None);
-        assert_eq!(parse_tps(""), None);
+        assert_eq!(
+            parse_tick_reading("[21:03:11] [Server thread/INFO]: Done (12.3s)!"),
+            None
+        );
+        assert_eq!(parse_tick_reading(""), None);
         // Out of range means a misparse, not a real reading.
-        assert_eq!(parse_tps("Mean TPS: 4000"), None);
+        assert_eq!(parse_tick_reading("Mean TPS: 4000"), None);
         // Zero tick time would divide by zero.
-        assert_eq!(parse_tps("Average time per tick: 0.0ms"), None);
+        assert_eq!(parse_tick_reading("Average time per tick: 0.0ms"), None);
     }
 
     #[test]
@@ -599,7 +636,9 @@ mod tests {
         // Typed by the operator, with no poll outstanding: the reading is
         // still recorded, but the line reaches their console.
         assert!(!tracker.observe("i1", REPORT).await);
-        assert_eq!(tracker.get("i1").await, Some(19.5));
+        let reading = tracker.get("i1").await.unwrap();
+        assert_eq!(reading.tps, 19.5);
+        assert_eq!(reading.mspt, Some(4.2));
 
         // Asked for by the poller: swallowed.
         tracker.mark_requested("i1").await;

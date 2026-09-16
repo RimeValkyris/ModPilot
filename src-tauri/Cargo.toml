@@ -43,6 +43,11 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-appender = "0.2"
 zip = { version = "2", default-features = false, features = ["deflate", "bzip2"] }
 regex = "1"
+# Forge and NeoForge declare mod metadata in `META-INF/mods.toml`. Already
+# in the tree as a build dependency of Tauri, so making it direct costs no
+# extra compilation - and hand-rolling a parser for a format with arrays of
+# tables and multi-line strings would be fragile exactly where it matters.
+toml = { version = "1", default-features = false, features = ["parse"] }
 walkdir = "2"
 base64 = "0.22"
 # FTB publishes a SHA-1 per pack file; verifying them is what keeps a

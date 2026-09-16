@@ -23,6 +23,14 @@ pub const PLAYERS_EVENT: &str = "instance-players-changed";
 /// see `server::alerts`.
 pub const RESOURCE_ALERT_EVENT: &str = "instance-resource-alert";
 
+/// Emitted when auto-restart gives up on an instance that keeps crashing -
+/// see `server::process::maybe_auto_restart` and `server::CrashTracker`.
+///
+/// Raised regardless of the OS-notification setting: that setting governs
+/// whether the desktop is interrupted, not whether ModpackPilot's own UI is
+/// allowed to know its server stopped trying to come back.
+pub const CRASH_LOOP_EVENT: &str = "instance-crash-loop";
+
 /// Emitted when a linked instance has a newer Modrinth version available -
 /// see `server::autoupdate`.
 pub const MODPACK_UPDATE_EVENT: &str = "instance-modpack-update-available";
@@ -58,6 +66,16 @@ pub struct LogLinePayload {
 pub struct PlayersChangedPayload {
     pub instance_id: String,
     pub players: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CrashLoopPayload {
+    pub instance_id: String,
+    pub instance_name: String,
+    /// How many consecutive crashes were seen before giving up.
+    pub crash_count: u32,
+    pub message: String,
 }
 
 #[derive(Debug, Clone, Serialize)]

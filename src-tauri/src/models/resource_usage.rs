@@ -48,9 +48,19 @@ pub struct ResourceUsage {
     pub disk: Option<DiskUsage>,
     pub ping: Option<ServerPing>,
     pub tps: Option<f32>,
+    /// Milliseconds per tick, when the server reported it alongside TPS.
+    ///
+    /// The more useful of the two for spotting trouble early: TPS saturates
+    /// at 20, so a server at 8 ms/tick and one at 45 ms/tick both read
+    /// "20.0" right up until the second one falls off a cliff.
+    pub mspt: Option<f32>,
     /// The console-derived roster's size, used when the ping didn't report a
     /// player count (or hasn't answered yet).
     pub players_tracked: u32,
+    /// The one-line verdict over the metrics above - see
+    /// [`crate::server::evaluate_health`]. Carried here rather than fetched
+    /// separately so it costs no extra round trip.
+    pub health: crate::server::ServerHealth,
 }
 
 impl ResourceUsage {
@@ -63,7 +73,26 @@ impl ResourceUsage {
             disk: None,
             ping: None,
             tps: None,
+            mspt: None,
             players_tracked: 0,
+            health: crate::server::ServerHealth::unknown(),
         }
     }
+}
+
+/// One persisted performance sample, as `server::history` writes them.
+///
+/// Every optional field is optional for the same reason it is on
+/// [`ResourceUsage`]: a metric that couldn't be measured at that moment is
+/// absent, so a chart draws a gap rather than a dip to zero.
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+#[serde(rename_all = "camelCase")]
+pub struct PerformanceSample {
+    pub recorded_at: chrono::DateTime<chrono::Utc>,
+    pub cpu_percent: f64,
+    pub memory_mb: f64,
+    pub tps: Option<f64>,
+    pub mspt: Option<f64>,
+    pub players: Option<i64>,
+    pub ping_ms: Option<i64>,
 }

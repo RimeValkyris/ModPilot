@@ -344,6 +344,43 @@ function ConsoleSection() {
   );
 }
 
+function PerformanceHistorySection() {
+  // Must match `server::history::{RETENTION_SETTING_KEY, DEFAULT_RETENTION_DAYS}`.
+  const { value: retentionDays, setValue: setRetentionDays } = useAppSetting(
+    "performance_retention_days",
+    "14",
+  );
+
+  return (
+    <SettingsSection
+      title="Performance History"
+      description="One sample per running server per minute, stored locally in ModpackPilot's own database. Nothing is sent anywhere."
+    >
+      <div className="flex flex-col gap-1.5">
+        <Label>Keep history for</Label>
+        <Select value={retentionDays} onValueChange={(v) => v && setRetentionDays(v)}>
+          <SelectTrigger className="w-full">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="3">3 days</SelectItem>
+            <SelectItem value="7">7 days</SelectItem>
+            <SelectItem value="14">14 days</SelectItem>
+            <SelectItem value="30">30 days</SelectItem>
+            <SelectItem value="90">90 days</SelectItem>
+            <SelectItem value="0">Forever</SelectItem>
+          </SelectContent>
+        </Select>
+        <p className="text-xs text-muted-foreground">
+          Older samples are deleted automatically. One running server is about
+          1,400 small rows a day, so even 90 days stays modest — but "Forever"
+          does mean forever.
+        </p>
+      </div>
+    </SettingsSection>
+  );
+}
+
 function DiagnosticsSection() {
   const [isExporting, setIsExporting] = useState(false);
 
@@ -488,6 +525,7 @@ export function SettingsPage() {
       <InstancesLocationSection />
       <NewInstanceDefaultsSection />
       <ConsoleSection />
+      <PerformanceHistorySection />
       <DiagnosticsSection />
       <AboutSection />
       <DangerZoneSection />

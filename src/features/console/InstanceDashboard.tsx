@@ -2,7 +2,25 @@ import { useResourceUsageStore, type UsageSample } from "@/stores/resourceUsageS
 import { formatMemoryMb, formatUptime } from "@/lib/format";
 import { StatCards } from "@/features/dashboard/StatCards";
 import { TrendChart, type TrendSeries } from "@/features/dashboard/TrendChart";
+import { Badge } from "@/components/ui/badge";
 import type { Instance } from "@/types/instance";
+import type { HealthStatus } from "@/types/monitor";
+
+/** Tinted badge classes per verdict, following the same idiom as
+ * `STATUS_BADGE_CLASS`. `unknown` never renders - a stopped server shows no
+ * verdict rather than a grey one. */
+const HEALTH_BADGE: Record<HealthStatus, { className: string; label: string }> = {
+  healthy: { className: "border-transparent bg-primary/15 text-primary", label: "HEALTHY" },
+  warning: {
+    className: "border-transparent bg-amber-500/15 text-amber-600 dark:text-amber-400",
+    label: "WARNING",
+  },
+  critical: {
+    className: "border-transparent bg-destructive/15 text-destructive",
+    label: "CRITICAL",
+  },
+  unknown: { className: "border-transparent bg-muted text-muted-foreground", label: "UNKNOWN" },
+};
 
 /** One chart per metric, in the same order as the cards above them, so the
  * eye can travel straight down from a number to its history. */
@@ -24,6 +42,16 @@ const CHARTS: {
     // auto-scaling would make a server dropping from 20 to 19 look like a
     // collapse.
     minTop: 20,
+  },
+  {
+    key: "mspt",
+    label: "MSPT",
+    color: "var(--chart-5)",
+    pick: (s) => s.mspt,
+    format: (v) => `${v.toFixed(1)} ms`,
+    // 50 ms is the tick budget; the scale should always show it, since the
+    // question is how much headroom is left rather than the raw number.
+    minTop: 50,
   },
   {
     key: "cpu",
@@ -84,14 +112,30 @@ export function InstanceDashboard({ instance }: { instance: Instance }) {
 
   return (
     <section className="flex flex-col gap-4">
-      <div className="flex items-baseline justify-between gap-3">
-        <h2 className="text-sm font-medium text-muted-foreground">Live metrics</h2>
+      <div className="flex flex-wrap items-baseline justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <h2 className="text-sm font-medium text-muted-foreground">Live metrics</h2>
+          {usage?.isRunning && usage.health.status !== "unknown" && (
+            <Badge className={HEALTH_BADGE[usage.health.status].className}>
+              {HEALTH_BADGE[usage.health.status].label}
+            </Badge>
+          )}
+        </div>
         {usage?.isRunning && (
           <span className="text-xs tabular-nums text-muted-foreground">
             Up {formatUptime(usage.uptimeSeconds)}
           </span>
         )}
       </div>
+
+      {/* A verdict is never shown without what produced it. */}
+      {usage?.isRunning && usage.health.reasons.length > 0 && (
+        <ul className="flex flex-col gap-0.5 rounded-lg border border-border bg-card p-3 text-xs text-muted-foreground">
+          {usage.health.reasons.map((reason) => (
+            <li key={reason}>{reason}</li>
+          ))}
+        </ul>
+      )}
 
       <StatCards instance={instance} />
 

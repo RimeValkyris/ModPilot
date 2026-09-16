@@ -19,6 +19,8 @@ import { InstanceModsTab } from "@/features/console/InstanceModsTab";
 import { InstancePlayersTab } from "@/features/console/InstancePlayersTab";
 import { OnlinePlayersCard } from "@/features/console/OnlinePlayersCard";
 import { InstanceDashboard } from "@/features/console/InstanceDashboard";
+import { DiagnosticsTab } from "@/features/console/DiagnosticsTab";
+import { PerformanceHistoryCard } from "@/features/console/PerformanceHistoryCard";
 
 const TABS = [
   "overview",
@@ -27,6 +29,7 @@ const TABS = [
   "mods",
   "players",
   "configuration",
+  "diagnostics",
   "logs",
 ] as const;
 type Tab = (typeof TABS)[number];
@@ -96,12 +99,16 @@ export function InstanceDetailPage() {
           <TabsTrigger value="mods">Mods</TabsTrigger>
           <TabsTrigger value="players">Players</TabsTrigger>
           <TabsTrigger value="configuration">Configuration</TabsTrigger>
+          <TabsTrigger value="diagnostics">Diagnostics</TabsTrigger>
           <TabsTrigger value="logs">Logs</TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview" className="flex flex-col gap-4">
           <ForgeInstallBanner instance={instance} />
           {instance.status === "running" && <InstanceDashboard instance={instance} />}
+          {/* Unconditional, unlike the live dashboard above: recorded history
+              is most useful precisely when the server is stopped. */}
+          <PerformanceHistoryCard instance={instance} />
           <dl className="grid grid-cols-2 gap-x-6 gap-y-3 rounded-xl border border-border bg-card p-4 text-sm sm:grid-cols-3">
             <div>
               <dt className="text-muted-foreground">Minecraft version</dt>
@@ -165,6 +172,9 @@ export function InstanceDetailPage() {
           <AutomationCard instance={instance} />
           <ServerPropertiesForm instance={instance} />
           <InstanceSettingsForm instance={instance} />
+        </TabsContent>
+        <TabsContent value="diagnostics">
+          <DiagnosticsTab instance={instance} />
         </TabsContent>
         <TabsContent value="logs">
           <InstanceLogsTab instance={instance} />
