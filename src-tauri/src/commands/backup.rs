@@ -15,16 +15,29 @@ use crate::AppState;
 /// exactly.
 const REQUIRED_FREE_MARGIN_BYTES: u64 = 1024 * 1024 * 1024;
 
-/// Rejects a backup filename that isn't exactly what `list_world_backups`
-/// would have produced - prevents a crafted name (e.g. containing `..` or a
-/// path separator) from making `restore`/`delete` touch anything outside
-/// the instance's own `backups/` folder.
+/// Rejects anything that isn't exactly a filename `list_world_backups`
+/// would have produced.
+///
+/// An allowlist, not a blocklist. Rejecting `..`, `/` and `\` is not
+/// enough on Windows, where a *drive-relative* segment carries a path
+/// prefix and makes `Path::join` discard the base entirely:
+///
+/// ```text
+/// Path::new(r"D:\inst\demoackups").join("C:evil.zip")  ==  "C:evil.zip"
+/// ```
+///
+/// `"C:evil.zip"` has no separator and no `..`, so a blocklist waves it
+/// through and the resulting path lands outside the instance's folder.
+/// Permitting only characters that appear in names this module generates
+/// removes that whole class of trick rather than enumerating it.
 fn validate_backup_name(name: &str) -> Result<(), String> {
     let safe = !name.is_empty()
+        && name.len() <= 255
         && name.ends_with(".zip")
-        && !name.contains('/')
-        && !name.contains('\\')
-        && !name.contains("..");
+        && !name.contains("..")
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'));
     if safe {
         Ok(())
     } else {
@@ -39,12 +52,46 @@ async fn backups_dir_for(state: &State<'_, AppState>, id: &str) -> Result<std::p
     Ok(Path::new(&instance.server_directory).join("backups"))
 }
 
+/// The instance's world folder.
+///
+/// `detect_world_folder_name` already refuses anything that isn't a plain
+/// folder name, but this result is handed to `rename`, `remove_dir_all` and
+/// the OS opener, so containment is asserted here too rather than resting on
+/// a single check somewhere else staying correct.
 async fn world_dir_for(state: &State<'_, AppState>, id: &str) -> Result<std::path::PathBuf, String> {
     let instance = fetch_instance(state, id)
         .await?
         .ok_or_else(|| "Instance not found".to_string())?;
     let server_dir = Path::new(&instance.server_directory).join("server");
-    Ok(server_dir.join(detect_world_folder_name(&server_dir).await))
+    let world_dir = server_dir.join(detect_world_folder_name(&server_dir).await);
+
+    if world_dir.parent() != Some(server_dir.as_path()) {
+        return Err("This instance's configured world folder is not a valid name".to_string());
+    }
+    Ok(world_dir)
+}
+
+/// Resolves a caller-supplied backup name to a path inside the instance's
+/// own `backups/` folder.
+///
+/// The `parent()` assertion is the part that actually enforces containment.
+/// `validate_backup_name` should already have made it unreachable, but the
+/// two together mean a future loosening of the name rules cannot silently
+/// turn into a path escape - the same belt-and-braces pattern
+/// `delete_pre_restore_world` uses.
+async fn resolve_backup_path(
+    state: &State<'_, AppState>,
+    id: &str,
+    backup_name: &str,
+) -> Result<std::path::PathBuf, String> {
+    validate_backup_name(backup_name)?;
+
+    let backups_dir = backups_dir_for(state, id).await?;
+    let path = backups_dir.join(backup_name);
+    if path.parent() != Some(backups_dir.as_path()) {
+        return Err("Invalid backup name".to_string());
+    }
+    Ok(path)
 }
 
 /// Zips the instance's current world folder into `backups/<world>-<timestamp>.zip`.
@@ -100,9 +147,7 @@ pub async fn verify_world_backup(
     id: String,
     backup_name: String,
 ) -> Result<BackupVerification, String> {
-    validate_backup_name(&backup_name)?;
-
-    let backup_path = backups_dir_for(&state, &id).await?.join(&backup_name);
+    let backup_path = resolve_backup_path(&state, &id, &backup_name).await?;
     if !backup_path.is_file() {
         return Err("Backup not found".to_string());
     }
@@ -136,16 +181,14 @@ pub(crate) async fn prune_backups(
     }
 
     let backups = list_world_backups(state.clone(), id.to_string()).await?;
-    let backups_dir = backups_dir_for(state, id).await?;
 
     for backup in backups.into_iter().skip(keep_last as usize) {
-        // Re-validate even though these names came from our own listing:
-        // it keeps the "nothing outside backups/ is ever deleted" guarantee
+        // Re-resolved even though these names came from our own listing: it
+        // keeps the "nothing outside backups/ is ever deleted" guarantee
         // local to this function rather than resting on a caller's behavior.
-        if validate_backup_name(&backup.name).is_err() {
+        let Ok(path) = resolve_backup_path(state, id, &backup.name).await else {
             continue;
-        }
-        let path = backups_dir.join(&backup.name);
+        };
         if let Err(e) = tokio::fs::remove_file(&path).await {
             tracing::warn!("Failed to prune old backup {}: {e}", path.display());
         } else {
@@ -224,13 +267,11 @@ pub async fn restore_world_backup(
     id: String,
     backup_name: String,
 ) -> Result<RestoreOutcome, String> {
-    validate_backup_name(&backup_name)?;
-
     if state.processes.is_running(&id).await {
         return Err("Stop the instance before restoring a backup".to_string());
     }
 
-    let backup_path = backups_dir_for(&state, &id).await?.join(&backup_name);
+    let backup_path = resolve_backup_path(&state, &id, &backup_name).await?;
     if !backup_path.is_file() {
         return Err("Backup not found".to_string());
     }
@@ -336,9 +377,7 @@ pub async fn delete_world_backup(
     id: String,
     backup_name: String,
 ) -> Result<(), String> {
-    validate_backup_name(&backup_name)?;
-
-    let backup_path = backups_dir_for(&state, &id).await?.join(&backup_name);
+    let backup_path = resolve_backup_path(&state, &id, &backup_name).await?;
     tokio::fs::remove_file(&backup_path)
         .await
         .map_err(|e| format!("Failed to delete backup: {e}"))?;
@@ -421,7 +460,8 @@ pub async fn list_pre_restore_worlds(
         });
     }
 
-    found.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+    // Newest first, so the most recent restore is the obvious one to keep.
+    found.sort_by_key(|w| std::cmp::Reverse(w.created_at));
     Ok(found)
 }
 
@@ -475,8 +515,38 @@ mod tests {
         assert!(validate_backup_name("world-20260101-120000.zip").is_ok());
         assert!(validate_backup_name("../../etc/passwd.zip").is_err());
         assert!(validate_backup_name("sub/dir.zip").is_err());
+        assert!(validate_backup_name("sub\\dir.zip").is_err());
         assert!(validate_backup_name("nope.txt").is_err());
         assert!(validate_backup_name("").is_err());
+    }
+
+    /// The bypass an allowlist exists for: on Windows a drive-relative
+    /// segment carries a path prefix, so `Path::join` throws the base away
+    /// and `"C:evil.zip"` - no separator, no `..` - escapes the folder.
+    #[test]
+    fn backup_names_reject_a_windows_drive_relative_prefix() {
+        assert!(validate_backup_name("C:evil.zip").is_err());
+        assert!(validate_backup_name("C:\\Windows\\evil.zip").is_err());
+        // The same trick with a UNC-looking name.
+        assert!(validate_backup_name("\\\\server\\share\\evil.zip").is_err());
+    }
+
+    /// The `parent()` assertion in `resolve_backup_path` is what actually
+    /// enforces containment, so verify it catches the case independently of
+    /// the name rules.
+    #[test]
+    fn joining_a_drive_relative_name_leaves_the_backups_folder() {
+        let backups = Path::new("D:/inst/demo/backups");
+        let escaped = backups.join("C:evil.zip");
+        // On Windows this is "C:evil.zip"; elsewhere it stays under the
+        // base. Either way the assertion must only pass for a real child.
+        let contained = escaped.parent() == Some(backups);
+        assert_eq!(contained, cfg!(not(windows)));
+        assert_eq!(
+            backups.join("world-1.zip").parent(),
+            Some(backups),
+            "an ordinary name must still resolve inside"
+        );
     }
 
     #[test]

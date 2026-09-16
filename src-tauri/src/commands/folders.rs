@@ -115,6 +115,20 @@ pub async fn get_instance_subfolder(
 
 /// Reads `level-name` out of `server.properties` if present, otherwise
 /// falls back to Minecraft's own default world folder name.
+///
+/// The value is sanitized, not trusted. `server.properties` is not the
+/// operator's word - it ships inside downloaded modpack ZIPs and imported
+/// server folders, and the importer writes it to disk verbatim. Its value
+/// is then used as a path segment by every caller here, several of which
+/// rename, delete, or hand it to the OS opener, so a hostile
+/// `level-name=../../../../Users/<name>/.../Startup` would turn a world
+/// restore into writing attacker-chosen files into a startup folder.
+///
+/// This is the single choke point for all of those callers, so the check
+/// lives here rather than being repeated (and eventually forgotten) at each
+/// one. Anything that isn't a plain single folder name falls back to the
+/// default, which is safe and matches what a server with an unusable
+/// `level-name` would do anyway.
 pub(crate) async fn detect_world_folder_name(server_dir: &std::path::Path) -> String {
     const DEFAULT: &str = "world";
 
@@ -127,8 +141,73 @@ pub(crate) async fn detect_world_folder_name(server_dir: &std::path::Path) -> St
         .lines()
         .find_map(|line| line.strip_prefix("level-name="))
         .map(|name| name.trim().to_string())
-        .filter(|name| !name.is_empty())
+        .filter(|name| is_safe_world_folder_name(name))
         .unwrap_or_else(|| DEFAULT.to_string())
+}
+
+/// Whether a `level-name` value is a plain folder name that can be safely
+/// joined onto the instance directory.
+///
+/// Rejects, in order of how easy each is to overlook:
+///
+/// - Path separators and `..`, the obvious traversal.
+/// - `:` - on Windows a drive-relative segment like `C:evil` carries a path
+///   prefix, and `Path::join` *discards the base* when it sees one, so a
+///   name with no separator at all can still escape.
+/// - `.` alone, which resolves to the instance folder itself.
+/// - A trailing dot or space, which Windows silently strips, letting
+///   `world ` and `world` refer to one directory under two names.
+fn is_safe_world_folder_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 255
+        && !name.contains('/')
+        && !name.contains('\\')
+        && !name.contains(':')
+        && !name.contains("..")
+        && name != "."
+        && !name.ends_with('.')
+        && !name.ends_with(' ')
+        && !name.chars().any(char::is_control)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn accepts_ordinary_world_names() {
+        for name in ["world", "My World", "world_nether", "survival-2026"] {
+            assert!(is_safe_world_folder_name(name), "should accept: {name}");
+        }
+    }
+
+    /// A modpack ships its own `server.properties`, so these values are
+    /// attacker-supplied rather than something the operator typed.
+    #[test]
+    fn rejects_anything_that_is_not_a_plain_folder_name() {
+        for name in [
+            "",
+            ".",
+            "..",
+            "../../evil",
+            "..\\..\\evil",
+            "sub/world",
+            "sub\\world",
+            // Windows drive-relative: no separator, but `Path::join` still
+            // throws the base away, so this escapes the instance folder.
+            "C:evil",
+            "C:\\Windows\\System32",
+            // Windows strips these, so two names would collide.
+            "world.",
+            "world ",
+        ] {
+            assert!(!is_safe_world_folder_name(name), "should reject: {name:?}");
+        }
+
+        // Control characters, built here so the literal stays readable.
+        let with_nul = format!("bad{}name", char::from(0));
+        assert!(!is_safe_world_folder_name(&with_nul));
+    }
 }
 
 /// Copies an instance's `logs/latest.log` to a user-chosen location -
