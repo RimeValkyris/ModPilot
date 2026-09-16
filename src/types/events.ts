@@ -46,3 +46,13 @@ export const STUCK_STARTING_EVENT = "instance-stuck-starting";
 export const PLAYERS_EVENT = "instance-players-changed";
 export const RESOURCE_ALERT_EVENT = "instance-resource-alert";
 export const CRASH_LOOP_EVENT = "instance-crash-loop";
+
+/** Mirrors Rust's `LoaderInstallProgressPayload`, emitted as
+ * `loader-install-progress` for each line the Forge/NeoForge installer
+ * prints while "Install Forge/NeoForge Server" runs. */
+export interface LoaderInstallProgressPayload {
+  instanceId: string;
+  step: string;
+}
+
+export const LOADER_INSTALL_PROGRESS_EVENT = "loader-install-progress";

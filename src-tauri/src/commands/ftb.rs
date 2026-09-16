@@ -99,6 +99,7 @@ pub async fn import_ftb_instance(
                 &state.db,
                 None,
                 preview.minecraft_version.as_deref(),
+                preview.loader_version.as_deref(),
                 preview.loader,
             )
             .await?,
@@ -450,6 +451,7 @@ pub async fn apply_ftb_update(
                 &state.db,
                 instance.java_installation_id.as_deref(),
                 preview.minecraft_version.as_deref(),
+                preview.loader_version.as_deref(),
                 preview.loader,
             )
             .await?

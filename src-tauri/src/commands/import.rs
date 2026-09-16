@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use chrono::Utc;
-use tauri::State;
+use tauri::{AppHandle, State};
 use uuid::Uuid;
 
 use super::instance::{insert_instance, write_instance_json};
@@ -42,6 +42,7 @@ pub async fn analyze_import(source: ImportSource) -> Result<DetectedServerInfo, 
 /// files) merged with whatever the user overrode during review.
 #[tauri::command]
 pub async fn import_instance(
+    app: AppHandle,
     state: State<'_, AppState>,
     source: ImportSource,
     request: ImportInstanceRequest,
@@ -93,15 +94,25 @@ pub async fn import_instance(
         tracing::warn!("Couldn't apply default server properties on import: {e}");
     }
 
-    let min_ram_mb = request.min_ram_mb.unwrap_or(2048);
-    let max_ram_mb = request.max_ram_mb.unwrap_or(4096);
+    // Order matters: what the user chose in the review form, then what the
+    // pack asks for itself, then a generic default. Stamping 4 GB over a
+    // pack that documents 8 GB is how an import ends up with a server that
+    // never finishes loading.
+    let min_ram_mb = request
+        .min_ram_mb
+        .or(detected.suggested_min_ram_mb)
+        .unwrap_or(2048);
+    let max_ram_mb = request
+        .max_ram_mb
+        .or(detected.suggested_max_ram_mb)
+        .unwrap_or(4096);
     if min_ram_mb <= 0 || max_ram_mb <= 0 || min_ram_mb > max_ram_mb {
         let _ = tokio::fs::remove_dir_all(&instance_dir).await;
         return Err("Minimum RAM must be positive and not exceed maximum RAM".to_string());
     }
 
     let launch_mode = detected.launch_mode().to_string();
-    let instance = Instance {
+    let mut instance = Instance {
         id: Uuid::new_v4().to_string(),
         name,
         minecraft_version: request.minecraft_version.or(detected.minecraft_version),
@@ -137,11 +148,79 @@ pub async fn import_instance(
         return Err(e);
     }
 
+    // A pack that ships only a Forge/NeoForge installer isn't a server
+    // yet, so finish the job here rather than handing back an instance
+    // whose only possible next action is one more button.
+    if detected.needs_loader_install {
+        instance = install_loader_during_import(&app, &state, instance).await;
+    }
+
     if let Err(e) = write_instance_json(&instance_dir, &instance).await {
         tracing::warn!("Instance {} imported, but instance.json failed: {e}", instance.id);
     }
 
     Ok(instance)
+}
+
+/// Runs the loader installer for a freshly-imported pack and records what
+/// it produced.
+///
+/// Deliberately infallible: the files are already copied and the instance
+/// already exists, so a failure here (no matching Java installed, no
+/// network, an installer that refuses) must not undo an otherwise-good
+/// import. The instance simply stays in `"installer"` mode, which is what
+/// the console's install banner is for - the operator can retry there once
+/// whatever blocked it is sorted out.
+async fn install_loader_during_import(
+    app: &AppHandle,
+    state: &State<'_, AppState>,
+    instance: Instance,
+) -> Instance {
+    let (installed, learned_version) = match super::server::install_loader_files(
+        app,
+        &state.db,
+        &instance,
+    )
+    .await
+    {
+        Ok(outcome) => outcome,
+        Err(e) => {
+            tracing::warn!(
+                "Imported {} but couldn't install its loader server: {e}",
+                instance.id
+            );
+            return instance;
+        }
+    };
+
+    // A version read out of the installer fills a blank; it never
+    // overwrites one detection or the user already supplied.
+    let result = sqlx::query(
+        "UPDATE instances
+         SET server_jar = ?, launch_mode = ?, minecraft_version = COALESCE(minecraft_version, ?)
+         WHERE id = ?",
+    )
+        .bind(&installed.server_jar)
+        .bind(installed.launch_mode.as_str())
+        .bind(&learned_version)
+        .bind(&instance.id)
+        .execute(&state.db)
+        .await;
+
+    if let Err(e) = result {
+        tracing::warn!(
+            "Installed the loader for {} but couldn't save the result: {e}",
+            instance.id
+        );
+        return instance;
+    }
+
+    Instance {
+        server_jar: Some(installed.server_jar),
+        launch_mode: installed.launch_mode,
+        minecraft_version: instance.minecraft_version.clone().or(learned_version),
+        ..instance
+    }
 }
 
 /// Updates an existing instance in place from a local ZIP or folder, for

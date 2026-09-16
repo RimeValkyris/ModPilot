@@ -327,3 +327,25 @@
 .console-scrollbar::-webkit-scrollbar-thumb:hover {
   background-color: oklch(1 0 0 / 40%);
 }
+/* Indeterminate progress bar, for work whose only honest answer to "how
+   far along?" is "still moving" - the Forge/NeoForge installer reports no
+   percentage of its own, and inventing one would be a lie about state. */
+@keyframes indeterminate-bar {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(300%);
+  }
+}
+.indeterminate-bar {
+  width: 33%;
+  animation: indeterminate-bar 1.4s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .indeterminate-bar {
+    width: 100%;
+    animation: none;
+    opacity: 0.6;
+  }
+}

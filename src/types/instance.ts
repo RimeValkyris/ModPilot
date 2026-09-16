@@ -30,7 +30,9 @@ export interface Instance {
   maxRamMb: number;
   serverDirectory: string;
   serverJar: string | null;
-  /** "jar" (default) or "argfile" - see Rust's `Instance::launch_mode`. */
+  /** "jar" (default), "argfile", "script", or "installer" (the pack shipped
+   * only a Forge/NeoForge installer and isn't runnable yet) - see Rust's
+   * `Instance::launch_mode`. */
   launchMode: string;
   jvmArgs: string[];
   serverArgs: string[];

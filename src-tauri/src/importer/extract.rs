@@ -176,7 +176,7 @@ pub fn create_zip_from_dir(src_dir: &Path, dest_zip: &Path) -> std::io::Result<(
     let options = SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
 
     for entry in walkdir::WalkDir::new(src_dir) {
-        let entry = entry.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+        let entry = entry.map_err(std::io::Error::other)?;
         let rel_path = entry
             .path()
             .strip_prefix(src_dir)
@@ -222,7 +222,7 @@ pub fn copy_dir_recursive(src_root: &Path, dest_root: &Path) -> std::io::Result<
     let wrapper_prefix = detect_wrapper_folder(&file_names).map(|w| format!("{w}/"));
 
     for entry in walkdir::WalkDir::new(src_root) {
-        let entry = entry.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+        let entry = entry.map_err(std::io::Error::other)?;
         let rel = entry
             .path()
             .strip_prefix(src_root)

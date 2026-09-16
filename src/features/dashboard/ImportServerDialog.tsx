@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { toast } from "sonner";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
@@ -32,6 +33,10 @@ import {
   type DetectedServerInfo,
   type ImportSource,
 } from "@/types/import";
+import {
+  LOADER_INSTALL_PROGRESS_EVENT,
+  type LoaderInstallProgressPayload,
+} from "@/types/events";
 import { ModpackBrowsePanel } from "./ModpackBrowsePanel";
 
 const LOADER_LABELS: Record<ServerLoader, string> = {
@@ -58,6 +63,7 @@ export function ImportServerDialog() {
   const [detected, setDetected] = useState<DetectedServerInfo | null>(null);
   const [conflictDirName, setConflictDirName] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [installStep, setInstallStep] = useState<string | null>(null);
 
   const [name, setName] = useState("");
   const [minecraftVersion, setMinecraftVersion] = useState("");
@@ -66,6 +72,7 @@ export function ImportServerDialog() {
   const [maxRamMb, setMaxRamMb] = useState("4096");
 
   function reset() {
+    setInstallStep(null);
     setStep("select");
     setSource(null);
     setDetected(null);
@@ -77,12 +84,32 @@ export function ImportServerDialog() {
     setMaxRamMb("4096");
   }
 
+  useEffect(() => {
+    if (!isSubmitting) return;
+    let unlisten: (() => void) | undefined;
+    // The new instance's id only comes back when the import returns, so
+    // this takes whatever arrives rather than filtering by it. The dialog
+    // is modal and blocks its own close while importing, so the only
+    // install that can be running is this one.
+    listen<LoaderInstallProgressPayload>(LOADER_INSTALL_PROGRESS_EVENT, (event) => {
+      setInstallStep(event.payload.step);
+    }).then((fn) => {
+      unlisten = fn;
+    });
+    return () => unlisten?.();
+  }, [isSubmitting]);
+
   async function runAnalysis(nextSource: ImportSource) {
     setSource(nextSource);
     setStep("analyzing");
     try {
       const result = await api.analyzeImport(nextSource);
       setDetected(result);
+      // A pack that documents its own memory needs knows better than a
+      // generic default - importing a 250-mod pack at 4 GB produces a
+      // server that never finishes loading.
+      if (result.suggestedMinRamMb) setMinRamMb(String(result.suggestedMinRamMb));
+      if (result.suggestedMaxRamMb) setMaxRamMb(String(result.suggestedMaxRamMb));
       setMinecraftVersion(result.minecraftVersion ?? "");
       setLoader(result.loader);
       const fileName = nextSource.path.split(/[/\\]/).pop() ?? "";
@@ -159,7 +186,18 @@ export function ImportServerDialog() {
         maxRamMb: Number(maxRamMb) || undefined,
         overwrite,
       });
-      toast.success(`Imported "${instance.name}"`);
+      // Still in "installer" mode means the import ran the loader
+      // installer and it didn't succeed (no matching Java, no network).
+      // The instance is fine - it just isn't startable until that step is
+      // retried from its console page, so say so rather than let the next
+      // Start attempt be the way they find out.
+      if (instance.launchMode === "installer") {
+        toast.warning(`Imported "${instance.name}", but the loader install didn't finish`, {
+          description: "Open the instance and use \"Install Forge/NeoForge Server\" to retry.",
+        });
+      } else {
+        toast.success(`Imported "${instance.name}"`);
+      }
       setOpen(false);
       reset();
     } catch (err) {
@@ -260,18 +298,48 @@ export function ImportServerDialog() {
             </DialogHeader>
 
             {isSubmitting && (
-              <p className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-                Copying files… large modpacks can take a while. This dialog
-                will close automatically when it's done - please don't close
-                ModpackPilot in the meantime.
-              </p>
+              <div className="flex min-w-0 flex-col gap-1.5 rounded-lg border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                <p>
+                  {installStep
+                    ? "Installing the loader server… this is the slow part."
+                    : detected.needsLoaderInstall
+                      ? "Copying files… the loader installer runs next."
+                      : "Copying files… large modpacks can take a while."}
+                </p>
+                {/* Neither phase can report a percentage - a file copy this
+                    large is one bulk operation, and the loader installer
+                    never says how far along it is - so the bar moves to
+                    show the work is alive and the line below carries the
+                    real detail. */}
+                <div
+                  className="h-1.5 overflow-hidden rounded-full bg-border"
+                  role="progressbar"
+                  aria-label="Importing"
+                >
+                  <div className="indeterminate-bar h-full rounded-full bg-primary" />
+                </div>
+                {installStep && (
+                  <p className="w-full truncate font-mono" title={installStep}>
+                    {installStep}
+                  </p>
+                )}
+                <p>
+                  This dialog closes by itself when it's done - please don't
+                  close ModpackPilot in the meantime.
+                </p>
+              </div>
             )}
 
             <fieldset disabled={isSubmitting} className="contents">
             <div className="flex flex-wrap gap-1.5">
               {detected.serverJar && (
                 <Badge variant="secondary">
-                  {detected.serverJarIsScript ? "Starts via" : "JAR"}: {detected.serverJar}
+                  {detected.needsLoaderInstall
+                    ? "Installer"
+                    : detected.serverJarIsScript
+                      ? "Starts via"
+                      : "JAR"}
+                  : {detected.serverJar}
                 </Badge>
               )}
               {detected.hasModsFolder && (
@@ -365,6 +433,18 @@ export function ImportServerDialog() {
                 />
               </div>
             </div>
+
+            {detected.suggestedMaxRamMb && (
+              <p className="text-xs text-muted-foreground">
+                This pack asks for {detected.suggestedMaxRamMb} MB
+                {detected.suggestedMinRamMb
+                  ? ` (minimum ${detected.suggestedMinRamMb} MB)`
+                  : ""}{" "}
+                in its own start settings, so that's what's filled in above. Lower it if this
+                machine can't spare that much - but a big pack given too little never finishes
+                loading.
+              </p>
+            )}
 
             {conflictDirName && (
               <div className="flex flex-col gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">

@@ -194,10 +194,7 @@ fn analyze(file_paths: &[String], read: &ReadFile) -> DetectedServerInfo {
         .map(|(original, _)| original.as_str())
         .collect();
 
-    let installer_jar_present = file_paths
-        .iter()
-        .zip(&lower_paths)
-        .any(|(_, lower)| !lower.contains('/') && lower.ends_with("installer.jar"));
+    info.loader_installer = find_loader_installer(file_paths, &lower_paths);
 
     info.has_mods_folder = lower_paths.iter().any(|p| p.starts_with("mods/"));
     info.mod_count = lower_paths
@@ -228,6 +225,9 @@ fn analyze(file_paths: &[String], read: &ReadFile) -> DetectedServerInfo {
         }
     }
 
+    (info.suggested_min_ram_mb, info.suggested_max_ram_mb) =
+        read_ram_hints(file_paths, &lower_paths, read, &info.start_scripts);
+
     detect_loader_and_version(&lower_paths, &root_jars, &mut info);
 
     // A modern (1.17+) Forge/NeoForge server, once actually installed,
@@ -248,12 +248,32 @@ fn analyze(file_paths: &[String], read: &ReadFile) -> DetectedServerInfo {
         resolve_from_start_scripts(file_paths, &lower_paths, read, &mut info);
     }
 
-    if info.server_jar.is_none() && installer_jar_present {
-        info.warnings.push(
-            "This is a Forge/NeoForge installer, not a ready-to-run server yet. Import it, \
-             then use \"Install Forge/NeoForge Server\" on the instance to finish setting it up."
-                .to_string(),
-        );
+    // A pack that ships an installer and nothing that can actually run
+    // yet. That covers both shapes this arrives in: an installer on its
+    // own, and the far more common installer + `run.bat`/`start.sh`, whose
+    // script launches the `@`-argfile the installer hasn't generated yet
+    // (`resolve_from_start_scripts` can't find that argfile, so it falls
+    // back to running the script - which would fail on every start). Point
+    // the instance at the installer and mark the one-time install step as
+    // pending, rather than leaving behind something whose Start button can
+    // only fail.
+    if let Some(installer) = info.loader_installer.clone() {
+        if info.server_jar.is_none() || info.server_jar_is_script {
+            info.needs_loader_install = true;
+            info.server_jar = Some(installer);
+            info.server_jar_is_argfile = false;
+            info.server_jar_is_script = false;
+        }
+    }
+
+    if info.needs_loader_install {
+        info.warnings.push(format!(
+            "This pack ships \"{}\" rather than a ready-to-run server, so the importer runs \
+             it once at the end of the import - expect that to add a few minutes. If it \
+             can't (no matching Java installed, no network), the instance still imports and \
+             its console page offers the install as a button.",
+            info.server_jar.as_deref().unwrap_or_default()
+        ));
     } else if info.server_jar.is_none() && info.start_scripts.is_empty() {
         info.warnings.push(
             "No server JAR or start script detected. You'll need to configure this instance manually.".to_string(),
@@ -374,6 +394,10 @@ fn detect_loader_and_version(
         info.loader = ServerLoader::NeoForge;
         let re = Regex::new(r"neoforge-([\d.]+)").unwrap();
         info.loader_version = find_capture(lower_paths, &re, 1);
+        info.minecraft_version = info
+            .loader_version
+            .as_deref()
+            .and_then(minecraft_version_from_neoforge);
     } else if any_path_contains("minecraftforge") || any_path_contains("forge-") {
         info.loader = ServerLoader::Forge;
         let re = Regex::new(r"forge-(\d+\.\d+(?:\.\d+)?)-([\d.]+)").unwrap();
@@ -405,6 +429,129 @@ fn detect_loader_and_version(
     info.server_jar = pick_server_jar(root_jars, info.loader);
 }
 
+/// True for a file name that is a loader installer rather than a runnable
+/// server - `neoforge-21.1.72-installer.jar`, `forge-1.20.1-47.4.0-installer.jar`,
+/// or the bare `installer.jar` some pack authors rename it to.
+///
+/// Matching on "installer" anywhere in the name (rather than only the
+/// `-installer.jar` suffix the official builds use) is deliberate: a false
+/// positive here costs an extra "this needs installing" prompt, while a
+/// miss costs an instance whose Start button silently opens a GUI wizard.
+pub fn is_loader_installer_name(file_name: &str) -> bool {
+    let lower = file_name.to_lowercase();
+    lower.ends_with(".jar") && lower.contains("installer")
+}
+
+/// Finds the loader installer a pack ships, if any.
+///
+/// Looks at the server root and one directory down - packs distribute the
+/// installer at the root, but some tuck it into an `installer/` or
+/// `setup/` folder next to the mods. Anything inside `mods/` is ignored:
+/// a mod jar with "installer" in its name is a mod, not a loader
+/// installer. Root-level candidates win, and among equals the official
+/// `-installer.jar` naming is preferred over a looser match.
+fn find_loader_installer(file_paths: &[String], lower_paths: &[String]) -> Option<String> {
+    let mut candidates: Vec<(&String, &String)> = file_paths
+        .iter()
+        .zip(lower_paths)
+        .filter(|(_, lower)| {
+            let depth = lower.matches('/').count();
+            let name = lower.rsplit('/').next().unwrap_or(lower);
+            depth <= 1 && !lower.starts_with("mods/") && is_loader_installer_name(name)
+        })
+        .collect();
+
+    candidates.sort_by_key(|(_, lower)| {
+        (
+            lower.contains('/'),
+            !lower.ends_with("-installer.jar"),
+            lower.len(),
+        )
+    });
+    candidates.first().map(|(original, _)| (*original).clone())
+}
+
+/// Reads the heap settings a pack ships for itself.
+///
+/// `user_jvm_args.txt` is the file modern Forge/NeoForge packs put them in
+/// (and the file their own docs tell operators to edit), so it is checked
+/// first; older packs put `-Xmx` straight into `run.bat`/`start.sh`, which
+/// is the fallback. Whatever is found is a *suggestion* - it lands in the
+/// import form where it can be edited, and the instance's own setting is
+/// what actually launches the server.
+fn read_ram_hints(
+    file_paths: &[String],
+    lower_paths: &[String],
+    read: &ReadFile,
+    start_scripts: &[String],
+) -> (Option<i64>, Option<i64>) {
+    let mut candidates: Vec<String> = Vec::new();
+    if let Some(path) = existing_path("user_jvm_args.txt", file_paths, lower_paths) {
+        candidates.push(path);
+    }
+    candidates.extend(start_scripts.iter().cloned());
+
+    for path in candidates {
+        let Some(contents) = read(&path) else {
+            continue;
+        };
+        let (min, max) = parse_heap_flags(&contents);
+        // A file that sets only `-Xms` tells us nothing useful on its own;
+        // `-Xmx` is the number that decides whether a pack can boot.
+        if max.is_some() {
+            return (min, max);
+        }
+    }
+
+    (None, None)
+}
+
+/// Pulls `-Xms`/`-Xmx` out of a script or argfile, in MB.
+fn parse_heap_flags(contents: &str) -> (Option<i64>, Option<i64>) {
+    let mut min = None;
+    let mut max = None;
+
+    for line in contents.lines() {
+        let line = line.trim();
+        if line.starts_with('#') || line.starts_with("::") || line.starts_with("rem ") {
+            continue;
+        }
+        for token in line.split_whitespace() {
+            let token = token.trim_matches('"');
+            let lower = token.to_lowercase();
+            if let Some(value) = lower.strip_prefix("-xmx") {
+                max = max.or(parse_heap_size_mb(value));
+            } else if let Some(value) = lower.strip_prefix("-xms") {
+                min = min.or(parse_heap_size_mb(value));
+            }
+        }
+    }
+
+    (min, max)
+}
+
+/// `8G` -> 8192, `6144M` -> 6144. A bare number is bytes, which is what
+/// the JVM itself does with an unsuffixed `-Xmx`.
+fn parse_heap_size_mb(value: &str) -> Option<i64> {
+    let value = value.trim();
+    // Case-folded here rather than relying on the caller: `-Xmx8G` is at
+    // least as common as `-Xmx8g` in the wild.
+    let (digits, multiplier) = match value.chars().last()?.to_ascii_lowercase() {
+        'g' => (&value[..value.len() - 1], 1024),
+        'm' => (&value[..value.len() - 1], 1),
+        'k' => return value[..value.len() - 1].parse::<i64>().ok().map(|k| k / 1024),
+        _ => (value, 0),
+    };
+
+    let number: i64 = digits.parse().ok()?;
+    let mb = if multiplier == 0 {
+        number / (1024 * 1024)
+    } else {
+        number * multiplier
+    };
+    (mb > 0).then_some(mb)
+}
+
 /// The platform-specific argfile suffix Forge/NeoForge's installer writes
 /// (`win_args.txt` on Windows, `unix_args.txt` everywhere else) - the same
 /// one `run.bat`/`run.sh` itself invokes.
@@ -426,6 +573,25 @@ fn find_loader_argfile(file_paths: &[String], lower_paths: &[String]) -> Option<
                 && lower.ends_with(LOADER_ARGFILE_SUFFIX)
         })
         .map(|(original, _)| original.clone())
+}
+
+/// NeoForge versions encode the Minecraft version they target: `21.1.72`
+/// is `1.21.1`, `20.4.0` is `1.20.4`. That mapping is NeoForge's stated
+/// scheme, so a pack that ships nothing but `neoforge-21.1.72-installer.jar`
+/// still gets a Minecraft version - which is what picks the right Java for
+/// the install and the first launch.
+///
+/// A trailing `.0` minor means the `.0` release of that major, e.g.
+/// `21.0.x` -> `1.21`, matching how Mojang names it.
+pub fn minecraft_version_from_neoforge(loader_version: &str) -> Option<String> {
+    let mut parts = loader_version.split('.');
+    let major: u32 = parts.next()?.parse().ok()?;
+    let minor: u32 = parts.next()?.parse().ok()?;
+    if minor == 0 {
+        Some(format!("1.{major}"))
+    } else {
+        Some(format!("1.{major}.{minor}"))
+    }
 }
 
 fn find_capture(paths: &[String], re: &Regex, group: usize) -> Option<String> {
@@ -480,6 +646,196 @@ mod tests {
 
     fn platform_argfile(version: &str) -> String {
         format!("libraries/net/neoforged/neoforge/{version}/{LOADER_ARGFILE_SUFFIX}")
+    }
+
+    /// The shape most modern NeoForge packs actually ship in: mods,
+    /// configs, a `run.bat`/`run.sh` - and an installer that still has to
+    /// be run, because the argfile those scripts launch doesn't exist yet.
+    /// Falling back to running the script here would produce an instance
+    /// whose every start fails.
+    #[test]
+    fn an_installer_next_to_a_start_script_needs_installing_first() {
+        let script = platform_script("run");
+        let root = pack(
+            "installer-with-script",
+            &[
+                ("neoforge-21.1.72-installer.jar", "x"),
+                (
+                    script.as_str(),
+                    "java @user_jvm_args.txt @libraries/net/neoforged/neoforge/21.1.72/win_args.txt nogui\n",
+                ),
+                ("mods/example.jar", "x"),
+            ],
+        );
+
+        let info = detect_from_dir(&root);
+
+        assert!(info.needs_loader_install);
+        assert_eq!(info.launch_mode(), "installer");
+        assert_eq!(
+            info.server_jar.as_deref(),
+            Some("neoforge-21.1.72-installer.jar")
+        );
+        assert!(!info.server_jar_is_script);
+        assert_eq!(info.loader, ServerLoader::NeoForge);
+        assert_eq!(info.loader_version.as_deref(), Some("21.1.72"));
+        // NeoForge's version scheme is the only place the Minecraft
+        // version appears in a pack like this.
+        assert_eq!(info.minecraft_version.as_deref(), Some("1.21.1"));
+        // The script is still offered as a launch target in Configuration,
+        // for after the install.
+        assert!(info.start_scripts.contains(&script));
+    }
+
+    /// The bare case: the pack is just the installer plus its files.
+    #[test]
+    fn a_lone_installer_needs_installing_first() {
+        let root = pack(
+            "installer-only",
+            &[
+                ("forge-1.20.1-47.4.0-installer.jar", "x"),
+                ("mods/example.jar", "x"),
+            ],
+        );
+
+        let info = detect_from_dir(&root);
+
+        assert!(info.needs_loader_install);
+        assert_eq!(info.launch_mode(), "installer");
+        assert_eq!(info.loader, ServerLoader::Forge);
+        assert!(
+            info.warnings.iter().any(|w| w.contains("at the end of the import")),
+            "the user should be told the import will run the installer: {:?}",
+            info.warnings,
+        );
+    }
+
+    /// An installer tucked into a subfolder (and renamed) is still an
+    /// installer - both of which real packs do.
+    #[test]
+    fn finds_an_installer_in_a_subfolder() {
+        let root = pack(
+            "installer-subfolder",
+            &[
+                ("installer/installer.jar", "x"),
+                ("mods/neoforge-example.jar", "x"),
+            ],
+        );
+
+        let info = detect_from_dir(&root);
+
+        assert!(info.needs_loader_install);
+        assert_eq!(info.server_jar.as_deref(), Some("installer/installer.jar"));
+    }
+
+    /// A mod whose name happens to contain "installer" is a mod. Flagging
+    /// the pack as uninstalled because of one would block a server that
+    /// runs perfectly well.
+    #[test]
+    fn a_mod_named_installer_is_not_a_loader_installer() {
+        let root = pack(
+            "installer-named-mod",
+            &[
+                ("server.jar", "x"),
+                ("mods/mod-installer-1.0.jar", "x"),
+            ],
+        );
+
+        let info = detect_from_dir(&root);
+
+        assert!(!info.needs_loader_install);
+        assert_eq!(info.loader_installer, None);
+        assert_eq!(info.server_jar.as_deref(), Some("server.jar"));
+    }
+
+    /// Once installed, the leftover installer must not drag the instance
+    /// back into "needs installing" - the argfile is what decides.
+    #[test]
+    fn an_installed_server_keeps_its_argfile_despite_a_leftover_installer() {
+        let argfile = platform_argfile("21.1.72");
+        let root = pack(
+            "installer-leftover",
+            &[
+                ("neoforge-21.1.72-installer.jar", "x"),
+                (argfile.as_str(), "-cp libraries/...\n"),
+                (platform_script("run").as_str(), "java @user_jvm_args.txt nogui\n"),
+                ("mods/example.jar", "x"),
+            ],
+        );
+
+        let info = detect_from_dir(&root);
+
+        assert!(!info.needs_loader_install);
+        assert_eq!(info.launch_mode(), "argfile");
+        assert_eq!(info.server_jar.as_deref(), Some(argfile.as_str()));
+    }
+
+    #[test]
+    fn maps_neoforge_versions_onto_minecraft_versions() {
+        assert_eq!(minecraft_version_from_neoforge("21.1.72").as_deref(), Some("1.21.1"));
+        assert_eq!(minecraft_version_from_neoforge("20.4.237").as_deref(), Some("1.20.4"));
+        // A `.0` minor is the base release, which Mojang names without it.
+        assert_eq!(minecraft_version_from_neoforge("21.0.5").as_deref(), Some("1.21"));
+        assert_eq!(minecraft_version_from_neoforge("nonsense"), None);
+    }
+
+    #[test]
+    fn parses_heap_flags_in_every_spelling() {
+        assert_eq!(parse_heap_size_mb("8G"), Some(8192));
+        assert_eq!(parse_heap_size_mb("6144M"), Some(6144));
+        assert_eq!(parse_heap_size_mb("6144m"), Some(6144));
+        // A bare number is bytes, the same as the JVM reads it.
+        assert_eq!(parse_heap_size_mb("4294967296"), Some(4096));
+        assert_eq!(parse_heap_size_mb("0"), None);
+        assert_eq!(parse_heap_size_mb("lots"), None);
+    }
+
+    /// The pack documents its own memory needs in `user_jvm_args.txt`;
+    /// importing it with ModpackPilot's generic 4 GB instead is what makes
+    /// a big pack hang partway through mod loading.
+    #[test]
+    fn reads_the_packs_own_memory_settings() {
+        let root = pack(
+            "ram-user-jvm-args",
+            &[
+                (
+                    "user_jvm_args.txt",
+                    "# Xmx and Xms set the maximum and minimum RAM usage
+-Xms2G
+-Xmx8G
+",
+                ),
+                ("server.jar", "x"),
+            ],
+        );
+
+        let info = detect_from_dir(&root);
+
+        assert_eq!(info.suggested_min_ram_mb, Some(2048));
+        assert_eq!(info.suggested_max_ram_mb, Some(8192));
+    }
+
+    /// Commented-out examples are not settings - `user_jvm_args.txt` ships
+    /// with the real values commented out more often than not.
+    #[test]
+    fn ignores_commented_out_memory_settings() {
+        let script = platform_script("run");
+        let root = pack(
+            "ram-commented",
+            &[
+                ("user_jvm_args.txt", "# -Xmx4G
+"),
+                (script.as_str(), "java -Xmx10G -jar server.jar nogui
+"),
+                ("server.jar", "x"),
+            ],
+        );
+
+        let info = detect_from_dir(&root);
+
+        // The commented line is skipped, so the script's value is what
+        // survives.
+        assert_eq!(info.suggested_max_ram_mb, Some(10240));
     }
 
     /// The case this whole path exists for: a server pack whose only clue

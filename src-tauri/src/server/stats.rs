@@ -544,6 +544,65 @@ impl PortCache {
     }
 }
 
+// ---------------------------------------------------------------------------
+// TPS poller
+// ---------------------------------------------------------------------------
+
+/// Periodically asks every running server for its tick rate.
+///
+/// A server only reports TPS when asked, so something has to do the asking.
+/// This writes the loader-appropriate command into each running instance's
+/// stdin on a slow cadence; the reply comes back through the console stream
+/// and is caught by [`TpsTracker::observe`], which also stops it reaching the
+/// operator's console view.
+///
+/// An instance whose loader has no tick-rate command is skipped entirely
+/// rather than sent a command the server would reject into its own log.
+pub fn spawn_tps_poller(app: tauri::AppHandle) {
+    use tauri::Manager;
+
+    tauri::async_runtime::spawn(async move {
+        loop {
+            tokio::time::sleep(TPS_POLL_INTERVAL).await;
+
+            let state = app.state::<crate::AppState>();
+            let running: Vec<String> = state
+                .processes
+                .running_snapshot()
+                .await
+                .into_iter()
+                .map(|(id, _, _)| id)
+                .collect();
+            if running.is_empty() {
+                continue;
+            }
+
+            let rows = sqlx::query_as::<_, (String, String, Option<String>)>(
+                "SELECT id, loader, minecraft_version FROM instances",
+            )
+            .fetch_all(&state.db)
+            .await;
+            let Ok(rows) = rows else { continue };
+
+            for (id, loader, minecraft_version) in rows {
+                if !running.contains(&id) {
+                    continue;
+                }
+                let Some(command) = tps_command(&loader, minecraft_version.as_deref()) else {
+                    continue;
+                };
+                // Announce before writing: the reply can land before the
+                // write call has even returned, and a reply that arrives
+                // before the window opens would reach the operator's console.
+                state.tps.mark_requested(&id).await;
+                // A write failure here just means the server stopped between
+                // the snapshot and now, which the next tick will notice.
+                let _ = state.processes.write_line(&id, command).await;
+            }
+        }
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -647,63 +706,4 @@ mod tests {
         tracker.clear("i1").await;
         assert_eq!(tracker.get("i1").await, None);
     }
-}
-
-// ---------------------------------------------------------------------------
-// TPS poller
-// ---------------------------------------------------------------------------
-
-/// Periodically asks every running server for its tick rate.
-///
-/// A server only reports TPS when asked, so something has to do the asking.
-/// This writes the loader-appropriate command into each running instance's
-/// stdin on a slow cadence; the reply comes back through the console stream
-/// and is caught by [`TpsTracker::observe`], which also stops it reaching the
-/// operator's console view.
-///
-/// An instance whose loader has no tick-rate command is skipped entirely
-/// rather than sent a command the server would reject into its own log.
-pub fn spawn_tps_poller(app: tauri::AppHandle) {
-    use tauri::Manager;
-
-    tauri::async_runtime::spawn(async move {
-        loop {
-            tokio::time::sleep(TPS_POLL_INTERVAL).await;
-
-            let state = app.state::<crate::AppState>();
-            let running: Vec<String> = state
-                .processes
-                .running_snapshot()
-                .await
-                .into_iter()
-                .map(|(id, _, _)| id)
-                .collect();
-            if running.is_empty() {
-                continue;
-            }
-
-            let rows = sqlx::query_as::<_, (String, String, Option<String>)>(
-                "SELECT id, loader, minecraft_version FROM instances",
-            )
-            .fetch_all(&state.db)
-            .await;
-            let Ok(rows) = rows else { continue };
-
-            for (id, loader, minecraft_version) in rows {
-                if !running.contains(&id) {
-                    continue;
-                }
-                let Some(command) = tps_command(&loader, minecraft_version.as_deref()) else {
-                    continue;
-                };
-                // Announce before writing: the reply can land before the
-                // write call has even returned, and a reply that arrives
-                // before the window opens would reach the operator's console.
-                state.tps.mark_requested(&id).await;
-                // A write failure here just means the server stopped between
-                // the snapshot and now, which the next tick will notice.
-                let _ = state.processes.write_line(&id, command).await;
-            }
-        }
-    });
 }

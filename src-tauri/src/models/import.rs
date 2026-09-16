@@ -34,6 +34,15 @@ pub struct DetectedServerInfo {
     /// `server_jar` is the pack's own start script, to be run as-is - see
     /// `Instance::launch_mode`.
     pub server_jar_is_script: bool,
+    /// The Forge/NeoForge installer jar this pack ships, if any - relative
+    /// to the server root. Present whether or not the pack is already
+    /// installed (an installed server often keeps the installer around).
+    pub loader_installer: Option<String>,
+    /// `true` when the installer above is all there is: the pack ships an
+    /// installer and no runnable server, so it has to be installed once
+    /// before it can start. `server_jar` then holds the installer's path
+    /// and `launch_mode` is "installer".
+    pub needs_loader_install: bool,
     pub has_mods_folder: bool,
     pub mod_count: usize,
     pub has_config_folder: bool,
@@ -41,6 +50,13 @@ pub struct DetectedServerInfo {
     pub world_folder_name: Option<String>,
     pub has_server_properties: bool,
     pub start_scripts: Vec<String>,
+    /// `-Xms`/`-Xmx` the pack sets for itself, in MB, read from
+    /// `user_jvm_args.txt` or its start script. These seed the import
+    /// form's RAM fields: a 250-mod pack that asks for 8 GB and gets
+    /// ModpackPilot's 4 GB default instead doesn't crash, it just never
+    /// finishes loading, which is a miserable thing to debug.
+    pub suggested_min_ram_mb: Option<i64>,
+    pub suggested_max_ram_mb: Option<i64>,
     /// Anything worth surfacing to the user that isn't fatal: multiple
     /// candidate server JARs, no JAR found at all, unreadable entries, etc.
     pub warnings: Vec<String>,
@@ -49,7 +65,9 @@ pub struct DetectedServerInfo {
 impl DetectedServerInfo {
     /// The `Instance::launch_mode` this detection result implies.
     pub fn launch_mode(&self) -> &'static str {
-        if self.server_jar_is_script {
+        if self.needs_loader_install {
+            "installer"
+        } else if self.server_jar_is_script {
             "script"
         } else if self.server_jar_is_argfile {
             "argfile"

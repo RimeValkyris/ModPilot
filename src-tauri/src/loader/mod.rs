@@ -114,6 +114,29 @@ async fn download_to(url: &str, dest: &Path) -> Result<(), String> {
         .map_err(|e| format!("Failed to write {}: {e}", dest.display()))
 }
 
+/// Drains one of the installer's output pipes, reporting each line as it
+/// arrives and returning the whole stream for error reporting.
+async fn collect_installer_output<R>(reader: R, on_step: Option<InstallerStepFn<'_>>) -> String
+where
+    R: tokio::io::AsyncRead + Unpin,
+{
+    use tokio::io::AsyncBufReadExt;
+
+    let mut lines = tokio::io::BufReader::new(reader).lines();
+    let mut collected = String::new();
+    while let Ok(Some(line)) = lines.next_line().await {
+        let trimmed = line.trim();
+        if let Some(on_step) = on_step {
+            if !trimmed.is_empty() {
+                on_step(trimmed);
+            }
+        }
+        collected.push_str(&line);
+        collected.push('\n');
+    }
+    collected
+}
+
 /// Runs a Forge/NeoForge installer jar in `--installServer` mode.
 ///
 /// Shared by the FTB install path and the manual "Install Forge Server"
@@ -124,6 +147,27 @@ pub async fn run_installer_jar(
     java_path: &str,
     installer_path: &Path,
     server_dir: &Path,
+) -> Result<(), String> {
+    run_installer_jar_reporting(java_path, installer_path, server_dir, None).await
+}
+
+/// A callback invoked with each line the installer prints, for callers that
+/// want to show what it is doing while it runs.
+pub type InstallerStepFn<'a> = &'a (dyn Fn(&str) + Send + Sync);
+
+/// `run_installer_jar`, but streaming: every line the installer writes is
+/// handed to `on_step` as it arrives instead of being collected silently.
+///
+/// The installer takes minutes (it downloads Minecraft's libraries and then
+/// runs its own bytecode processors) and never reports a completion
+/// percentage, so what it prints is the only real signal there is that it
+/// hasn't stalled. Output is still buffered as well, because the error
+/// messages below are built from it.
+pub async fn run_installer_jar_reporting(
+    java_path: &str,
+    installer_path: &Path,
+    server_dir: &Path,
+    on_step: Option<InstallerStepFn<'_>>,
 ) -> Result<(), String> {
     let mut command = tokio::process::Command::new(java_path);
 
@@ -151,14 +195,29 @@ pub async fn run_installer_jar(
         command.creation_flags(0x0800_0000);
     }
 
-    let output = command
-        .output()
+    command
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+
+    let mut child = command
+        .spawn()
+        .map_err(|e| format!("Failed to run the Forge/NeoForge installer: {e}"))?;
+
+    let stdout_pipe = child.stdout.take().expect("stdout is piped");
+    let stderr_pipe = child.stderr.take().expect("stderr is piped");
+
+    let (stdout, stderr) = tokio::join!(
+        collect_installer_output(stdout_pipe, on_step),
+        collect_installer_output(stderr_pipe, on_step),
+    );
+
+    let status = child
+        .wait()
         .await
         .map_err(|e| format!("Failed to run the Forge/NeoForge installer: {e}"))?;
 
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let stdout = String::from_utf8_lossy(&output.stdout);
+    if !status.success() {
         let combined = format!("{stdout}{stderr}");
         let tail = if stderr.trim().is_empty() { &stdout } else { &stderr };
 
@@ -174,7 +233,7 @@ pub async fn run_installer_jar(
 
         return Err(format!(
             "Forge/NeoForge installer failed (exit code {:?}): {}",
-            output.status.code(),
+            status.code(),
             tail.lines().rev().take(5).collect::<Vec<_>>().join(" / "),
         ));
     }
@@ -185,6 +244,40 @@ pub async fn run_installer_jar(
 /// Re-reads a server directory after an install and reports what should be
 /// launched. Separate from the install itself because the answer is
 /// whatever ended up on disk, not whatever we intended to put there.
+/// Reads the Minecraft version out of an installer jar's
+/// `install_profile.json`.
+///
+/// This is the authoritative answer, and the only one for a pack whose
+/// installer has been renamed: detection reads the version out of the
+/// *file name* (`forge-1.20.1-47.4.0-installer.jar`), which a pack author
+/// who shipped it as `installer.jar` has thrown away. Without a Minecraft
+/// version there is nothing to pick a Java version from, and the install
+/// is refused rather than run under whatever `java` is first on PATH.
+///
+/// Both layouts are handled: modern installers put `minecraft` at the top
+/// level, 1.12-era ones nest it under `install`. Anything unreadable is
+/// `None` - this is a best-effort improvement on the file name, never a
+/// hard requirement.
+pub fn minecraft_version_from_installer(installer_path: &Path) -> Option<String> {
+    let file = std::fs::File::open(installer_path).ok()?;
+    let mut archive = zip::ZipArchive::new(file).ok()?;
+    let entry = archive.by_name("install_profile.json").ok()?;
+
+    let profile: serde_json::Value = serde_json::from_reader(entry).ok()?;
+    let version = profile
+        .get("minecraft")
+        .and_then(serde_json::Value::as_str)
+        .or_else(|| {
+            profile
+                .get("install")
+                .and_then(|install| install.get("minecraft"))
+                .and_then(serde_json::Value::as_str)
+        })?;
+
+    let version = version.trim();
+    (!version.is_empty()).then(|| version.to_string())
+}
+
 pub async fn detect_installed(server_dir: &Path) -> Result<InstalledLoader, String> {
     let dir = server_dir.to_path_buf();
     let detected = tauri::async_runtime::spawn_blocking(move || importer::detect_from_dir(&dir))
@@ -299,6 +392,74 @@ async fn install_via_installer(
     result?;
 
     detect_installed(server_dir).await
+}
+
+#[cfg(test)]
+mod install_profile_tests {
+    use super::*;
+    use std::io::Write;
+
+    /// Builds a jar shaped like a real installer: a ZIP with an
+    /// `install_profile.json` at its root.
+    fn installer_jar(label: &str, profile: &str) -> PathBuf {
+        let path = std::env::temp_dir()
+            .join(format!("modpackpilot-installer-{label}-{}.jar", uuid::Uuid::new_v4()));
+        let file = std::fs::File::create(&path).expect("create jar");
+        let mut zip = zip::ZipWriter::new(file);
+        zip.start_file(
+            "install_profile.json",
+            zip::write::SimpleFileOptions::default(),
+        )
+        .expect("start entry");
+        zip.write_all(profile.as_bytes()).expect("write profile");
+        zip.finish().expect("finish jar");
+        path
+    }
+
+    /// The case this exists for: an installer renamed to `installer.jar`,
+    /// whose file name no longer carries the version.
+    #[test]
+    fn reads_the_version_from_a_modern_installer() {
+        let jar = installer_jar(
+            "modern",
+            r#"{"spec":1,"minecraft":"1.20.1","version":"1.20.1-forge-47.4.0"}"#,
+        );
+        assert_eq!(
+            minecraft_version_from_installer(&jar).as_deref(),
+            Some("1.20.1")
+        );
+    }
+
+    /// 1.12-era installers nest it under `install` instead.
+    #[test]
+    fn reads_the_version_from_a_legacy_installer() {
+        let jar = installer_jar(
+            "legacy",
+            r#"{"install":{"profileName":"forge","minecraft":"1.12.2"},"versionInfo":{}}"#,
+        );
+        assert_eq!(
+            minecraft_version_from_installer(&jar).as_deref(),
+            Some("1.12.2")
+        );
+    }
+
+    /// Anything unreadable is `None`, never a guess - the caller then
+    /// refuses the install rather than picking a Java at random.
+    #[test]
+    fn returns_none_for_anything_it_cannot_read() {
+        let jar = installer_jar("empty-profile", r#"{"spec":1}"#);
+        assert_eq!(minecraft_version_from_installer(&jar), None);
+
+        let not_a_jar = std::env::temp_dir()
+            .join(format!("modpackpilot-not-a-jar-{}.jar", uuid::Uuid::new_v4()));
+        std::fs::write(&not_a_jar, b"this is not a zip").expect("write file");
+        assert_eq!(minecraft_version_from_installer(&not_a_jar), None);
+
+        assert_eq!(
+            minecraft_version_from_installer(Path::new("no-such-file.jar")),
+            None
+        );
+    }
 }
 
 /// Live-network checks. Ignored by default - these download real installers

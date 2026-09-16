@@ -99,6 +99,11 @@ pub async fn import_modrinth_instance(
                 &state.db,
                 None,
                 preview.minecraft_version.as_deref(),
+                // A Modrinth preview names the loader but never its
+                // build (that only comes out of the mrpack manifest,
+                // later), so there is no loader version to fall back
+                // on here.
+                None,
                 preview.loader,
             )
             .await?,

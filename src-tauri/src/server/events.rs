@@ -40,6 +40,14 @@ pub const MODPACK_UPDATE_EVENT: &str = "instance-modpack-update-available";
 /// reports progress rather than blocking silently for several minutes.
 pub const FTB_INSTALL_PROGRESS_EVENT: &str = "ftb-install-progress";
 
+/// Emitted for each line a Forge/NeoForge installer prints while the manual
+/// "Install Forge/NeoForge Server" step runs. The installer reports no
+/// percentage of its own, so the step text is what tells an operator the
+/// several-minute wait is still moving.
+pub const LOADER_INSTALL_PROGRESS_EVENT: &str = "loader-install-progress";
+
+
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StatusChangedPayload {
@@ -106,4 +114,12 @@ pub struct ModpackUpdateAvailablePayload {
     pub version_number: String,
     /// True when the instance policy is "auto" and installation has begun.
     pub installing: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LoaderInstallProgressPayload {
+    pub instance_id: String,
+    /// The installer's current output line, e.g. "Downloading library ...".
+    pub step: String,
 }

@@ -488,10 +488,27 @@ fn spawn_log_reader<R>(
     R: tokio::io::AsyncRead + Unpin + Send + 'static,
 {
     tokio::spawn(async move {
-        let mut lines = BufReader::new(stream).lines();
+        // Read bytes and decode lossily rather than using `lines()`, which
+        // yields an error the moment a line isn't valid UTF-8 - and mods do
+        // print bytes in the OS console codepage (Java only guarantees
+        // UTF-8 on stdout when `stdout.encoding` is set, which is why it is
+        // now, but that's a JVM-version-dependent fix and this is not the
+        // only way a stray byte can arrive). Aborting the reader on such a
+        // line is worse than mangling one character: nothing drains the
+        // pipe any more, so the server blocks on its next `println` once
+        // the pipe buffer fills and hangs mid-startup forever, while
+        // running the pack's own `run.bat` in a real console works fine.
+        let mut reader = BufReader::new(stream);
+        let mut buf: Vec<u8> = Vec::new();
         loop {
-            match lines.next_line().await {
-                Ok(Some(line)) => {
+            buf.clear();
+            match reader.read_until(b'\n', &mut buf).await {
+                Ok(0) => break,
+                Ok(_) => {
+                    let line = String::from_utf8_lossy(&buf)
+                        .trim_end_matches('\n')
+                        .trim_end_matches('\r')
+                        .to_string();
                     last_activity_millis.store(now_millis(), Ordering::Relaxed);
 
                     let entry = format!("[{}] {line}\n", Utc::now().format("%H:%M:%S"));
@@ -556,7 +573,6 @@ fn spawn_log_reader<R>(
                         }
                     }
                 }
-                Ok(None) => break,
                 Err(e) => {
                     tracing::warn!("Error reading {stream_name} for instance {instance_id}: {e}");
                     break;

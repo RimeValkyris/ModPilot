@@ -97,7 +97,11 @@ pub struct Instance {
     /// actually the path to a modern Forge/NeoForge `@`-argfile;
     /// `"script"` means no jar could be identified at all and
     /// `server_jar` is the pack's own start script (`run.bat`/`run.sh`),
-    /// which gets run as-is (see `crate::server::spawn_server_process`).
+    /// which gets run as-is (see `crate::server::spawn_server_process`);
+    /// `"installer"` means the pack shipped only a Forge/NeoForge
+    /// installer, so `server_jar` is that installer and nothing is
+    /// runnable until `install_forge_server` has been run once - starting
+    /// such an instance is refused rather than opening the installer GUI.
     pub launch_mode: String,
     pub jvm_args: Vec<String>,
     pub server_args: Vec<String>,

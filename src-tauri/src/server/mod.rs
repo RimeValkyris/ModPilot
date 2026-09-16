@@ -18,6 +18,7 @@ pub use crash_tracker::CrashTracker;
 pub use health::{evaluate as evaluate_health, ServerHealth};
 pub use history::spawn as spawn_history;
 pub use events::{FtbInstallProgressPayload, FTB_INSTALL_PROGRESS_EVENT};
+pub use events::{LoaderInstallProgressPayload, LOADER_INSTALL_PROGRESS_EVENT};
 pub use manager::{ProcessManager, RunningProcess};
 pub use monitor::ResourceMonitor;
 pub use players::PlayerTracker;

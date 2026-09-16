@@ -86,7 +86,7 @@ async fn tick(app: &AppHandle) -> Result<(), String> {
         if max_ram_mb <= 0 {
             continue;
         }
-        let is_high = (usage.memory_mb as f64) >= (max_ram_mb as f64) * MEMORY_HIGH_FRACTION;
+        let is_high = usage.memory_mb >= (max_ram_mb as f64) * MEMORY_HIGH_FRACTION;
 
         let should_alert = {
             let state = app.state::<AppState>();

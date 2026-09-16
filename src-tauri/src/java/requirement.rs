@@ -61,6 +61,24 @@ mod tests {
         assert_eq!(required_java_major(Some("not-a-version")), None);
     }
 
+    /// The chain that decides which JVM a pack imported as a plain server
+    /// folder runs on. Such a pack routinely has no Minecraft version of
+    /// its own, and before this it fell through to whatever `java` was
+    /// first on PATH - which is how a NeoForge 21.1.x (1.21.1) pack ended
+    /// up launched under Java 25 and hung partway through mod loading.
+    #[test]
+    fn derives_the_java_major_from_a_neoforge_version_alone() {
+        let mc = crate::importer::minecraft_version_from_neoforge("21.1.244");
+        assert_eq!(mc.as_deref(), Some("1.21.1"));
+        assert_eq!(required_java_major(mc.as_deref()), Some(21));
+
+        // And it carries the older thresholds too: 20.4.x is 1.20.4,
+        // which predates the 1.20.5 jump to Java 21.
+        let mc = crate::importer::minecraft_version_from_neoforge("20.4.237");
+        assert_eq!(mc.as_deref(), Some("1.20.4"));
+        assert_eq!(required_java_major(mc.as_deref()), Some(17));
+    }
+
     #[test]
     fn parses_java_majors() {
         assert_eq!(parse_java_major("21.0.2"), Some(21));

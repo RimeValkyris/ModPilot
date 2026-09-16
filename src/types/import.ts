@@ -15,6 +15,11 @@ export interface DetectedServerInfo {
   serverJarIsArgfile: boolean;
   /** `serverJar` is the pack's own start script, to be run as-is. */
   serverJarIsScript: boolean;
+  /** The Forge/NeoForge installer jar the pack ships, if any. */
+  loaderInstaller: string | null;
+  /** The pack ships only an installer - it has to be installed once before
+   * it can start, and `serverJar` is that installer. */
+  needsLoaderInstall: boolean;
   hasModsFolder: boolean;
   modCount: number;
   hasConfigFolder: boolean;
@@ -22,6 +27,10 @@ export interface DetectedServerInfo {
   worldFolderName: string | null;
   hasServerProperties: boolean;
   startScripts: string[];
+  /** `-Xms`/`-Xmx` the pack sets for itself, in MB, if it says. These
+   * pre-fill the import form's RAM fields. */
+  suggestedMinRamMb: number | null;
+  suggestedMaxRamMb: number | null;
   warnings: string[];
 }
 

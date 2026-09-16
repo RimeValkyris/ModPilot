@@ -12,7 +12,7 @@ static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
 /// its schema up to date.
 pub async fn init_pool(db_path: &Path) -> Result<SqlitePool, sqlx::Error> {
     if let Some(parent) = db_path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| sqlx::Error::Io(e))?;
+        std::fs::create_dir_all(parent).map_err(sqlx::Error::Io)?;
     }
 
     let options = SqliteConnectOptions::new()

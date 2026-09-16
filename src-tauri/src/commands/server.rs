@@ -1,16 +1,16 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::time::Duration;
 
 use chrono::Utc;
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Emitter, State};
 use uuid::Uuid;
 
 use super::instance::fetch_instance;
 use crate::java;
 use crate::models::{Instance, ServerLoader, ServerStatus};
-use crate::server::{self, RunningProcess};
+use crate::server::{self, LoaderInstallProgressPayload, RunningProcess, LOADER_INSTALL_PROGRESS_EVENT};
 use crate::AppState;
 
 /// How long a graceful `stop` is given to finish before `restart_instance`
@@ -37,6 +37,18 @@ pub async fn start_instance(app: AppHandle, state: State<'_, AppState>, id: Stri
             "Cannot start an instance that is currently {}",
             instance.status.as_str()
         ));
+    }
+
+    // Detection found only a loader installer for this instance, so there
+    // is nothing to start yet - running the installer jar would just open
+    // its GUI wizard and look like a broken server. The console page shows
+    // the install banner for exactly this state.
+    if instance.launch_mode == "installer" {
+        return Err(
+            "This server isn't installed yet - it only has a Forge/NeoForge installer. Run \
+             \"Install Forge/NeoForge Server\" on this instance first."
+                .to_string(),
+        );
     }
 
     let server_jar = instance
@@ -71,6 +83,7 @@ pub async fn start_instance(app: AppHandle, state: State<'_, AppState>, id: Stri
         &state.db,
         instance.java_installation_id.as_deref(),
         instance.minecraft_version.as_deref(),
+        instance.loader_version.as_deref(),
         instance.loader,
     )
     .await?;
@@ -84,8 +97,20 @@ pub async fn start_instance(app: AppHandle, state: State<'_, AppState>, id: Stri
     // wrapper tool (Multicraft, McMyAdmin, etc.) applies: skip JLine's
     // terminal detection entirely rather than let it hang trying to probe
     // a terminal that was never going to be there.
-    const WRAPPER_COMPAT_JVM_ARGS: &[&str] =
-        &["-Djline.terminal=jline.UnsupportedTerminal", "-Dfile.encoding=UTF8"];
+    //
+    // `stdout.encoding`/`stderr.encoding` matter for the same reason: from
+    // Java 19 on, `file.encoding` no longer governs `System.out` when it's
+    // a pipe - the OS console codepage does (cp1252 here), so any mod
+    // printing a non-ASCII character sends bytes ModpackPilot's UTF-8
+    // reader can't decode. The reader survives that now (see
+    // `spawn_log_reader`), but it shouldn't have to guess in the first
+    // place.
+    const WRAPPER_COMPAT_JVM_ARGS: &[&str] = &[
+        "-Djline.terminal=jline.UnsupportedTerminal",
+        "-Dfile.encoding=UTF8",
+        "-Dstdout.encoding=UTF-8",
+        "-Dstderr.encoding=UTF-8",
+    ];
 
     let mut jvm_args: Vec<String> = WRAPPER_COMPAT_JVM_ARGS.iter().map(|s| s.to_string()).collect();
     jvm_args.extend(if instance.jvm_args.is_empty() {
@@ -265,51 +290,30 @@ pub async fn send_console_command(state: State<'_, AppState>, id: String, comman
 /// installer was started (see `importer::detect`'s installer-jar
 /// exclusion, added alongside this command).
 #[tauri::command]
-pub async fn install_forge_server(state: State<'_, AppState>, id: String) -> Result<Instance, String> {
+pub async fn install_forge_server(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<Instance, String> {
     let instance = fetch_instance(&state, &id)
         .await?
         .ok_or_else(|| "Instance not found".to_string())?;
 
-    let server_dir = Path::new(&instance.server_directory).join("server");
+    let (installed, learned_version) = install_loader_files(&app, &state.db, &instance).await?;
 
-    let installer_path = {
-        let mut entries = tokio::fs::read_dir(&server_dir)
-            .await
-            .map_err(|e| format!("Failed to read server directory: {e}"))?;
-        let mut found = None;
-        while let Some(entry) = entries
-            .next_entry()
-            .await
-            .map_err(|e| format!("Failed to read server directory: {e}"))?
-        {
-            let name = entry.file_name().to_string_lossy().to_lowercase();
-            if name.ends_with("installer.jar") {
-                found = Some(entry.path());
-                break;
-            }
-        }
-        found.ok_or_else(|| {
-            "No Forge/NeoForge installer jar (*-installer.jar) was found in this instance's server folder".to_string()
-        })?
-    };
-
-    let java_path = resolve_java_path(
-        &state.db,
-        instance.java_installation_id.as_deref(),
-        instance.minecraft_version.as_deref(),
-        instance.loader,
-    )
-    .await?;
-
-    crate::loader::run_installer_jar(&java_path, &installer_path, &server_dir).await?;
-
-    let installed = crate::loader::detect_installed(&server_dir).await?;
     let server_jar = installed.server_jar;
     let launch_mode = installed.launch_mode.as_str();
 
-    sqlx::query("UPDATE instances SET server_jar = ?, launch_mode = ? WHERE id = ?")
+    // COALESCE so a version the operator typed by hand is never replaced
+    // by one read out of the installer.
+    sqlx::query(
+        "UPDATE instances
+         SET server_jar = ?, launch_mode = ?, minecraft_version = COALESCE(minecraft_version, ?)
+         WHERE id = ?",
+    )
         .bind(&server_jar)
         .bind(launch_mode)
+        .bind(&learned_version)
         .bind(&id)
         .execute(&state.db)
         .await
@@ -318,6 +322,138 @@ pub async fn install_forge_server(state: State<'_, AppState>, id: String) -> Res
     fetch_instance(&state, &id)
         .await?
         .ok_or_else(|| "Instance not found".to_string())
+}
+
+/// Runs an instance's Forge/NeoForge installer and reports what it produced,
+/// without touching the database - the callers decide what to record.
+///
+/// Shared by the manual "Install Forge/NeoForge Server" button and the
+/// importer, which runs this as the last step of an import so a pack that
+/// ships only an installer arrives ready to start instead of parked on a
+/// banner asking for one more click.
+/// Returns what the install produced, plus a Minecraft version read out of
+/// the installer when the instance didn't already have one - see
+/// `loader::minecraft_version_from_installer`.
+pub(crate) async fn install_loader_files(
+    app: &AppHandle,
+    db: &sqlx::SqlitePool,
+    instance: &Instance,
+) -> Result<(crate::loader::InstalledLoader, Option<String>), String> {
+    let server_dir = Path::new(&instance.server_directory).join("server");
+
+    // The instance's own `server_jar` is the installer whenever detection
+    // flagged it as needing this step, so trust that first and only fall
+    // back to scanning when it points at something else (an instance
+    // imported before that detection existed, say).
+    let installer_path = match instance.server_jar.as_deref() {
+        Some(jar)
+            if crate::importer::is_loader_installer_name(jar)
+                && server_dir.join(jar).is_file() =>
+        {
+            server_dir.join(jar)
+        }
+        _ => find_installer_jar(&server_dir).await?.ok_or_else(|| {
+            "No Forge/NeoForge installer jar was found in this instance's server folder"
+                .to_string()
+        })?,
+    };
+
+    // An installer whose file name kept its versions (the official
+    // naming) has already given detection a Minecraft version. A renamed
+    // one hasn't, and without a version there is nothing to choose a Java
+    // from - so ask the installer itself before giving up.
+    let learned_version = match instance.minecraft_version {
+        Some(_) => None,
+        None => {
+            let path = installer_path.clone();
+            tauri::async_runtime::spawn_blocking(move || {
+                crate::loader::minecraft_version_from_installer(&path)
+            })
+            .await
+            .unwrap_or_default()
+        }
+    };
+    if let Some(version) = &learned_version {
+        tracing::info!(
+            "Read Minecraft {version} out of {}",
+            installer_path.display()
+        );
+    }
+
+    let java_path = resolve_java_path(
+        db,
+        instance.java_installation_id.as_deref(),
+        instance
+            .minecraft_version
+            .as_deref()
+            .or(learned_version.as_deref()),
+        instance.loader_version.as_deref(),
+        instance.loader,
+    )
+    .await?;
+
+    // The installer prints what it's doing but never how far along it is,
+    // so its lines are forwarded as-is: real steps beat a made-up
+    // percentage during a wait this long.
+    let report = |step: &str| {
+        let _ = app.emit(
+            LOADER_INSTALL_PROGRESS_EVENT,
+            LoaderInstallProgressPayload {
+                instance_id: instance.id.clone(),
+                step: step.to_string(),
+            },
+        );
+    };
+
+    crate::loader::run_installer_jar_reporting(
+        &java_path,
+        &installer_path,
+        &server_dir,
+        Some(&report),
+    )
+    .await?;
+
+    Ok((crate::loader::detect_installed(&server_dir).await?, learned_version))
+}
+
+/// Scans an instance's server folder for a loader installer jar, at the
+/// root or one directory down - the same two places import detection looks
+/// (see `importer::detect`'s `find_loader_installer`), so a pack whose
+/// installer sits in a subfolder can still be installed from here.
+async fn find_installer_jar(server_dir: &Path) -> Result<Option<PathBuf>, String> {
+    let mut root = tokio::fs::read_dir(server_dir)
+        .await
+        .map_err(|e| format!("Failed to read server directory: {e}"))?;
+
+    let mut subdirs = Vec::new();
+    while let Some(entry) = root
+        .next_entry()
+        .await
+        .map_err(|e| format!("Failed to read server directory: {e}"))?
+    {
+        let name = entry.file_name().to_string_lossy().to_string();
+        if crate::importer::is_loader_installer_name(&name) {
+            return Ok(Some(entry.path()));
+        }
+        // `mods/` is skipped for the same reason detection skips it: a mod
+        // jar with "installer" in its name is a mod.
+        if entry.path().is_dir() && !name.eq_ignore_ascii_case("mods") {
+            subdirs.push(entry.path());
+        }
+    }
+
+    for dir in subdirs {
+        let Ok(mut entries) = tokio::fs::read_dir(&dir).await else {
+            continue;
+        };
+        while let Ok(Some(entry)) = entries.next_entry().await {
+            if crate::importer::is_loader_installer_name(&entry.file_name().to_string_lossy()) {
+                return Ok(Some(entry.path()));
+            }
+        }
+    }
+
+    Ok(None)
 }
 
 /// Proactively disables Forge/NeoForge's built-in update checker before
@@ -415,9 +551,10 @@ async fn patch_update_checker_toggle(path: &Path) -> std::io::Result<()> {
 }
 
 /// Writes `eula.txt` with `eula=true` if it isn't already there. Mojang's
-/// EULA requires an operator to accept it before a server will run at all
-/// - vanilla and every loader just print a message and exit immediately
-/// otherwise. Pressing "Start" in ModpackPilot *is* that acceptance: the
+/// EULA requires an operator to accept it before a server will run at
+/// all: vanilla and every loader just print a message and exit
+/// immediately otherwise. Pressing "Start" in ModpackPilot *is* that
+/// acceptance: the
 /// operator explicitly chose to launch this server, the same way typing
 /// `eula=true` into the file by hand would be. Never overwrites an
 /// existing file, so an operator who deliberately set `eula=false` stays
@@ -458,9 +595,23 @@ pub(crate) async fn resolve_java_path(
     db: &sqlx::SqlitePool,
     java_installation_id: Option<&str>,
     minecraft_version: Option<&str>,
+    loader_version: Option<&str>,
     loader: ServerLoader,
 ) -> Result<String, String> {
-    let required = java::required_java_major(minecraft_version);
+    // A pack imported as a plain server folder often has no Minecraft
+    // version of its own, and without one the checks below have nothing to
+    // check against - the PATH fallback takes over and launches whatever
+    // JDK happens to be first, which is the exact silent mismatch this
+    // function exists to prevent. NeoForge's version encodes the Minecraft
+    // version it targets, so use that rather than give up: `21.1.244` is
+    // 1.21.1, which needs Java 21, no matter what PATH points at.
+    let effective_mc_version = minecraft_version.map(str::to_string).or_else(|| {
+        (loader == ServerLoader::NeoForge)
+            .then(|| loader_version.and_then(crate::importer::minecraft_version_from_neoforge))
+            .flatten()
+    });
+    let required = java::required_java_major(effective_mc_version.as_deref());
+    let minecraft_version = effective_mc_version.as_deref().or(minecraft_version);
 
     if let Some(java_id) = java_installation_id {
         let row = sqlx::query_as::<_, (String, String)>(
