@@ -29,6 +29,17 @@ Built as a side/hobby or what ever you call this project and shared as open sour
   loader (Forge / NeoForge / Fabric / Quilt / Vanilla), server JAR, mods,
   config, world folder, and start scripts on a best-effort basis before
   anything is copied.
+- **Runs the loader installer for you.** Most modern Forge/NeoForge packs
+  ship an *installer* rather than a runnable server - start one as-is and
+  you get the installer's GUI wizard instead of a server. ModpackPilot
+  recognizes that shape (including an installer renamed or tucked in a
+  subfolder), runs it headlessly as the last step of the import with its
+  progress on screen, and refuses to "start" an instance that hasn't been
+  installed yet instead of launching something that can only fail.
+- **Adopts the pack's own memory settings.** The `-Xms`/`-Xmx` a pack sets
+  in `user_jvm_args.txt` or its start script pre-fill the import form, so a
+  250-mod pack that documents 8 GB isn't quietly imported with a generic
+  4 GB and left to hang partway through mod loading.
 - **Install an FTB modpack** directly: search Feed the Beast's public packs,
   pick a version, and ModpackPilot downloads the server files (verifying
   each one's checksum) and runs the Forge/NeoForge/Fabric server install
@@ -44,7 +55,13 @@ Built as a side/hobby or what ever you call this project and shared as open sour
 - **Java management**: detects installed JDKs (`JAVA_HOME`, `PATH`, common
   install locations), shows version/vendor/architecture, lets you assign
   which one an instance uses, and recommends/flags mismatches against the
-  Java version Mojang actually requires for that instance's Minecraft version.
+  Java version Mojang actually requires for that instance's Minecraft
+  version. Forge and NeoForge hang partway through mod loading on the wrong
+  major - no error, just silence - so an unresolvable mismatch is refused
+  with a message naming the version needed, rather than launched under
+  whatever `java` happens to be first on `PATH`. A pack that never states
+  its Minecraft version still gets one: it is derived from the NeoForge
+  version, or read out of the installer's own `install_profile.json`.
 - **Per-instance settings**: server JAR, JVM/server arguments, min/max RAM,
   auto-start, auto-restart.
 - **World backups**: one-click zip snapshot of an instance's world folder,
@@ -132,8 +149,13 @@ src-tauri/src/             Rust backend
 ├── commands/              Tauri commands (one module per feature area)
 ├── server/                Process lifecycle, log capture, resource monitor
 ├── importer/              Safe ZIP/folder import + server detection
+├── loader/                Forge/NeoForge/Fabric server installation
 ├── java/                  Java installation detection
 ├── modrinth/              Modrinth API client + .mrpack update installer
+├── ftb/                   Feed the Beast API client + pack installer
+├── packs/                 Pack file tracking for in-place updates
+├── mods/                  Mod listing, enable/disable, removal
+├── diagnostics/           Crash-log export and health checks
 ├── filesystem/            App-data paths, name sanitization
 ├── database/              SQLite pool + migration runner
 ├── models/                Shared data types
@@ -146,7 +168,12 @@ src-tauri/migrations/      SQL schema migrations
 
 - ZIP extraction validates every entry path against directory-traversal
   ("zip slip") before writing anything to disk.
-- Imported `.bat`/`.sh` files are never executed automatically.
+- Imported `.bat`/`.sh` files are never executed automatically. The one
+  thing an import does run is a Forge/NeoForge **installer JAR**, headless
+  and only ever with `--installServer` - that is the whole point of such a
+  file, and it is what turns the pack into a server. Installer URLs are
+  always built from the loaders' official Maven coordinates, never taken
+  from a modpack API's response.
 - The Minecraft server process is spawned with an argument vector, never a
   shell string — no shell injection surface.
 - A restrictive Content-Security-Policy is set on the webview.
