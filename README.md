@@ -20,7 +20,6 @@ Built as a side/hobby or what ever you call this project and shared as open sour
 ![Tokio](https://img.shields.io/badge/Tokio-async_runtime-orange)
 ![Platform](https://img.shields.io/badge/platform-Windows-0078D6?logo=windows&logoColor=white)
 ![License](https://img.shields.io/badge/license-MIT-green)
-![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)
 
 ## What it does
 
