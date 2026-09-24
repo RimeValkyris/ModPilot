@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { listen } from "@tauri-apps/api/event";
 import { toast } from "sonner";
 import { AlertTriangle, Hammer } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { listenWithCleanup } from "@/lib/tauri";
 import { useInstancesStore } from "@/stores/instancesStore";
 import {
   LOADER_INSTALL_PROGRESS_EVENT,
@@ -43,18 +43,10 @@ export function ForgeInstallBanner({ instance }: { instance: Instance }) {
 
   useEffect(() => {
     if (!isInstalling) return;
-    let unlisten: (() => void) | undefined;
-    listen<LoaderInstallProgressPayload>(LOADER_INSTALL_PROGRESS_EVENT, (event) => {
+    return listenWithCleanup<LoaderInstallProgressPayload>(LOADER_INSTALL_PROGRESS_EVENT, (event) => {
       if (event.payload.instanceId !== instance.id) return;
       if (mounted.current) setStep(event.payload.step);
-    }).then((fn) => {
-      unlisten = fn;
-      // A listener registered after the install already started would miss
-      // the lines emitted in between; nothing is lost that matters, since
-      // only the latest step is ever shown.
-      if (!mounted.current) fn();
     });
-    return () => unlisten?.();
   }, [isInstalling, instance.id]);
 
   if (!needsForgeInstall(instance)) return null;

@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { listen } from "@tauri-apps/api/event";
 import { toast } from "sonner";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
@@ -25,7 +24,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useInstancesStore } from "@/stores/instancesStore";
-import { api } from "@/lib/tauri";
+import { api, cleanupAsyncSubscription, listenWithCleanup } from "@/lib/tauri";
 import { getRequiredJavaMajor } from "@/lib/javaRequirement";
 import { SERVER_LOADERS, type ServerLoader } from "@/types/instance";
 import {
@@ -86,17 +85,13 @@ export function ImportServerDialog() {
 
   useEffect(() => {
     if (!isSubmitting) return;
-    let unlisten: (() => void) | undefined;
     // The new instance's id only comes back when the import returns, so
     // this takes whatever arrives rather than filtering by it. The dialog
     // is modal and blocks its own close while importing, so the only
     // install that can be running is this one.
-    listen<LoaderInstallProgressPayload>(LOADER_INSTALL_PROGRESS_EVENT, (event) => {
+    return listenWithCleanup<LoaderInstallProgressPayload>(LOADER_INSTALL_PROGRESS_EVENT, (event) => {
       setInstallStep(event.payload.step);
-    }).then((fn) => {
-      unlisten = fn;
     });
-    return () => unlisten?.();
   }, [isSubmitting]);
 
   async function runAnalysis(nextSource: ImportSource) {
@@ -150,8 +145,8 @@ export function ImportServerDialog() {
   useEffect(() => {
     if (!open || step !== "select") return;
 
-    let unlisten: (() => void) | undefined;
-    getCurrentWebview()
+    const cleanup = cleanupAsyncSubscription(
+      getCurrentWebview()
       .onDragDropEvent((event) => {
         if (event.payload.type !== "drop") return;
         const droppedPath = event.payload.paths[0];
@@ -160,12 +155,10 @@ export function ImportServerDialog() {
           ? { kind: "zip", path: droppedPath }
           : { kind: "folder", path: droppedPath };
         void runAnalysis(nextSource);
-      })
-      .then((fn) => {
-        unlisten = fn;
-      });
+      }),
+    );
 
-    return () => unlisten?.();
+    return cleanup;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, step]);
 

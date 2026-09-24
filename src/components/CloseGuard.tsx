@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { listen } from "@tauri-apps/api/event";
 import { toast } from "sonner";
 import {
   AlertDialog,
@@ -11,7 +10,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { api } from "@/lib/tauri";
+import { api, listenWithCleanup } from "@/lib/tauri";
 
 const CLOSE_REQUESTED_EVENT = "close-requested-with-running-servers";
 
@@ -26,11 +25,7 @@ export function CloseGuard() {
   const [isStopping, setIsStopping] = useState(false);
 
   useEffect(() => {
-    let unlisten: (() => void) | undefined;
-    listen(CLOSE_REQUESTED_EVENT, () => setOpen(true)).then((fn) => {
-      unlisten = fn;
-    });
-    return () => unlisten?.();
+    return listenWithCleanup(CLOSE_REQUESTED_EVENT, () => setOpen(true));
   }, []);
 
   async function handleStopAndExit() {

@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { listen, type EventCallback, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
   CreateInstanceRequest,
   Instance,
@@ -31,6 +32,39 @@ import type {
   FtbVersionSummary,
 } from "@/types/ftb";
 import type { AvatarPresetInfo } from "@/types/avatar";
+
+/**
+ * Registers an event listener without leaking it when a component unmounts
+ * before Tauri finishes registering the listener.
+ */
+export function listenWithCleanup<T>(
+  eventName: string,
+  handler: EventCallback<T>,
+): () => void {
+  return cleanupAsyncSubscription(listen(eventName, handler));
+}
+
+export function cleanupAsyncSubscription(
+  registration: Promise<UnlistenFn>,
+): () => void {
+  let active = true;
+  let unlisten: UnlistenFn | undefined;
+
+  void registration
+    .then((registeredUnlisten) => {
+      if (active) {
+        unlisten = registeredUnlisten;
+      } else {
+        registeredUnlisten();
+      }
+    })
+    .catch(() => undefined);
+
+  return () => {
+    active = false;
+    unlisten?.();
+  };
+}
 
 /**
  * Thin wrapper around Tauri's `invoke` calls. Keeping every command call in

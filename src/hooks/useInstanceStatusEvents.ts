@@ -1,7 +1,7 @@
 import { useEffect } from "react";
-import { listen } from "@tauri-apps/api/event";
 import { useInstancesStore } from "@/stores/instancesStore";
 import { STATUS_EVENT, type StatusChangedPayload } from "@/types/events";
+import { listenWithCleanup } from "@/lib/tauri";
 
 /**
  * Keeps the instances store in sync with server processes' actual
@@ -13,12 +13,8 @@ export function useInstanceStatusEvents() {
   const applyStatusUpdate = useInstancesStore((s) => s.applyStatusUpdate);
 
   useEffect(() => {
-    let unlisten: (() => void) | undefined;
-    listen<StatusChangedPayload>(STATUS_EVENT, (event) => {
+    return listenWithCleanup<StatusChangedPayload>(STATUS_EVENT, (event) => {
       applyStatusUpdate(event.payload.instanceId, event.payload.status);
-    }).then((fn) => {
-      unlisten = fn;
     });
-    return () => unlisten?.();
   }, [applyStatusUpdate]);
 }

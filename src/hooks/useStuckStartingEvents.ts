@@ -1,7 +1,7 @@
 import { useEffect } from "react";
-import { listen } from "@tauri-apps/api/event";
 import { toast } from "sonner";
 import { useInstancesStore } from "@/stores/instancesStore";
+import { listenWithCleanup } from "@/lib/tauri";
 import {
   CRASH_LOOP_EVENT,
   LOG_EVENT,
@@ -25,31 +25,21 @@ export function useStuckStartingEvents() {
   const clearInstanceStuck = useInstancesStore((s) => s.clearInstanceStuck);
 
   useEffect(() => {
-    let unlistenStuck: (() => void) | undefined;
-    let unlistenLog: (() => void) | undefined;
-
-    listen<StuckStartingPayload>(STUCK_STARTING_EVENT, (event) => {
+    const cleanupStuck = listenWithCleanup<StuckStartingPayload>(STUCK_STARTING_EVENT, (event) => {
       markInstanceStuck(event.payload.instanceId);
-    }).then((fn) => {
-      unlistenStuck = fn;
     });
 
     // Any new output means it's not stuck (anymore) - clears the flag if
     // the instance recovers on its own after being flagged.
-    listen<LogLinePayload>(LOG_EVENT, (event) => {
+    const cleanupLog = listenWithCleanup<LogLinePayload>(LOG_EVENT, (event) => {
       clearInstanceStuck(event.payload.instanceId);
-    }).then((fn) => {
-      unlistenLog = fn;
     });
 
     // Sustained resource problems (see Rust's `server::alerts`) surface as
     // a toast in-app; the backend also raises an OS notification so it is
     // seen even when ModpackPilot is not focused.
-    let unlistenAlert: (() => void) | undefined;
-    listen<ResourceAlertPayload>(RESOURCE_ALERT_EVENT, (event) => {
+    const cleanupAlert = listenWithCleanup<ResourceAlertPayload>(RESOURCE_ALERT_EVENT, (event) => {
       toast.warning("Resource alert", { description: event.payload.message });
-    }).then((fn) => {
-      unlistenAlert = fn;
     });
 
     // Auto-restart giving up is the most consequential thing that can
@@ -57,22 +47,19 @@ export function useStuckStartingEvents() {
     // surfaced wherever the operator happens to be, not only on the
     // instance's own page. Persistent, because a toast that auto-dismisses
     // is exactly as good as no toast for something discovered later.
-    let unlistenCrashLoop: (() => void) | undefined;
-    listen<CrashLoopPayload>(CRASH_LOOP_EVENT, (event) => {
+    const cleanupCrashLoop = listenWithCleanup<CrashLoopPayload>(CRASH_LOOP_EVENT, (event) => {
       toast.error(`${event.payload.instanceName}: crash loop detected`, {
         description: `Auto-restart gave up after ${event.payload.crashCount} consecutive crashes. Open its Diagnostics tab to see why.`,
         duration: Infinity,
         closeButton: true,
       });
-    }).then((fn) => {
-      unlistenCrashLoop = fn;
     });
 
     return () => {
-      unlistenStuck?.();
-      unlistenLog?.();
-      unlistenAlert?.();
-      unlistenCrashLoop?.();
+      cleanupStuck();
+      cleanupLog();
+      cleanupAlert();
+      cleanupCrashLoop();
     };
   }, [markInstanceStuck, clearInstanceStuck]);
 }

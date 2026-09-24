@@ -14,13 +14,23 @@ const JAVA_EXE: &str = if cfg!(windows) { "java.exe" } else { "java" };
 /// of OpenJDK) without needing registry access or an auto-installer.
 fn common_install_roots() -> Vec<PathBuf> {
     if cfg!(windows) {
-        vec![
+        let mut roots = vec![
             PathBuf::from(r"C:\Program Files\Java"),
             PathBuf::from(r"C:\Program Files\Eclipse Adoptium"),
             PathBuf::from(r"C:\Program Files\Zulu"),
             PathBuf::from(r"C:\Program Files\Microsoft"),
+            PathBuf::from(r"C:\Program Files\Amazon Corretto"),
+            PathBuf::from(r"C:\Program Files\BellSoft"),
+            PathBuf::from(r"C:\Program Files\Semeru"),
             PathBuf::from(r"C:\Program Files (x86)\Java"),
-        ]
+        ];
+        if let Ok(local_app_data) = std::env::var("LOCALAPPDATA") {
+            roots.push(PathBuf::from(local_app_data).join(r"Programs\Eclipse Adoptium"));
+        }
+        if let Ok(user_profile) = std::env::var("USERPROFILE") {
+            roots.push(PathBuf::from(user_profile).join(".jdks"));
+        }
+        roots
     } else {
         vec![
             PathBuf::from("/usr/lib/jvm"),
@@ -40,7 +50,15 @@ fn find_candidate_paths() -> Vec<PathBuf> {
     let mut candidates = Vec::new();
 
     if let Ok(java_home) = std::env::var("JAVA_HOME") {
-        candidates.push(Path::new(&java_home).join("bin").join(JAVA_EXE));
+        let java_home = java_home.trim();
+        if !java_home.is_empty() {
+            let java_home = PathBuf::from(java_home);
+            candidates.push(if java_home.is_file() {
+                java_home
+            } else {
+                java_home.join("bin").join(JAVA_EXE)
+            });
+        }
     }
 
     if let Ok(path_var) = std::env::var("PATH") {
@@ -60,28 +78,74 @@ fn find_candidate_paths() -> Vec<PathBuf> {
         }
     }
 
+    for java_home in registry_java_homes() {
+        candidates.push(java_home.join("bin").join(JAVA_EXE));
+    }
+
     candidates
 }
 
-/// Runs `java -version` and parses its output. Every JDK prints this to
-/// stderr, not stdout, in a near-universal three-line format across
-/// vendors - see the format examples in the parsing helpers below.
+/// Windows installers commonly register Java homes even when they do not
+/// update PATH. Query the registry through the built-in `reg.exe` command so
+/// detection does not need a platform-specific crate or elevated access.
+fn registry_java_homes() -> Vec<PathBuf> {
+    if !cfg!(windows) {
+        return Vec::new();
+    }
+
+    let keys = [
+        r"HKLM\SOFTWARE\JavaSoft",
+        r"HKLM\SOFTWARE\WOW6432Node\JavaSoft",
+        r"HKCU\SOFTWARE\JavaSoft",
+    ];
+    let mut homes = Vec::new();
+    for key in keys {
+        let Ok(output) = Command::new("reg.exe")
+            .args(["query", key, "/s"])
+            .output()
+        else {
+            continue;
+        };
+        let text = String::from_utf8_lossy(&output.stdout);
+        for line in text.lines() {
+            let Some((name, value)) = line.split_once("REG_SZ") else {
+                continue;
+            };
+            if name.trim() == "JavaHome" {
+                let value = value.trim();
+                if !value.is_empty() {
+                    homes.push(PathBuf::from(value));
+                }
+            }
+        }
+    }
+    homes
+}
+
+/// Runs Java's diagnostic properties and parses its output. The banner format
+/// varies between vendors; these properties are more stable and also expose
+/// vendor and architecture directly.
 fn probe(java_path: &Path) -> Option<DetectedJava> {
-    let output = Command::new(java_path).arg("-version").output().ok()?;
-    // `-version` exits 0 on every JDK we've seen; still fall back to
-    // checking stdout in case some vendor's build differs.
-    let text = if !output.stderr.is_empty() {
-        String::from_utf8_lossy(&output.stderr).to_string()
-    } else {
-        String::from_utf8_lossy(&output.stdout).to_string()
-    };
+    let output = Command::new(java_path)
+        .args(["-XshowSettings:properties", "-version"])
+        .output()
+        .ok()?;
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stderr),
+        String::from_utf8_lossy(&output.stdout)
+    );
     if text.is_empty() {
         return None;
     }
 
-    let version = parse_version(&text)?;
-    let architecture = parse_architecture(&text);
-    let vendor = parse_vendor(&text);
+    let version = parse_property(&text, "java.version")
+        .map(|value| normalize_version(&value))
+        .or_else(|| parse_version(&text))?;
+    let architecture = parse_property(&text, "os.arch")
+        .map(|value| normalize_architecture(&value))
+        .unwrap_or_else(|| parse_architecture(&text));
+    let vendor = parse_property(&text, "java.vendor").or_else(|| parse_vendor(&text));
 
     Some(DetectedJava {
         version,
@@ -89,6 +153,26 @@ fn probe(java_path: &Path) -> Option<DetectedJava> {
         path: java_path.to_string_lossy().to_string(),
         architecture,
     })
+}
+
+fn parse_property(text: &str, property: &str) -> Option<String> {
+    text.lines().find_map(|line| {
+        let (key, value) = line.split_once('=')?;
+        (key.trim() == property).then(|| value.trim().to_string())
+    })
+}
+
+fn normalize_architecture(value: &str) -> String {
+    let lower = value.to_ascii_lowercase();
+    if lower.contains("aarch64") || lower.contains("arm64") {
+        "arm64".to_string()
+    } else if lower.contains("64") || lower.contains("amd64") || lower.contains("x86_64") {
+        "x64".to_string()
+    } else if lower.contains("86") || lower.contains("x32") {
+        "x86".to_string()
+    } else {
+        "unknown".to_string()
+    }
 }
 
 /// Finds Java executables bundled inside an imported server pack. Pack
@@ -139,11 +223,15 @@ fn parse_version(text: &str) -> Option<String> {
     let re = Regex::new(r#"version "([^"]+)""#).unwrap();
     let raw = re.captures(text)?.get(1)?.as_str().to_string();
 
+    Some(normalize_version(&raw))
+}
+
+fn normalize_version(raw: &str) -> String {
     if let Some(rest) = raw.strip_prefix("1.") {
         // Legacy scheme: "1.8.0_392" -> "8.0.392"
-        Some(rest.replacen('_', ".", 1))
+        rest.replacen('_', ".", 1)
     } else {
-        Some(raw)
+        raw.to_string()
     }
 }
 
@@ -228,4 +316,28 @@ pub fn detect_java_installations() -> Vec<DetectedJava> {
     }
 
     results
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_java_diagnostic_properties() {
+        let text = r#"
+    java.vendor = Eclipse Adoptium
+    java.version = 21.0.8
+    os.arch = amd64
+openjdk version "21.0.8" 2025-07-15
+"#;
+
+        assert_eq!(parse_property(text, "java.version").as_deref(), Some("21.0.8"));
+        assert_eq!(parse_property(text, "java.vendor").as_deref(), Some("Eclipse Adoptium"));
+        assert_eq!(normalize_architecture("amd64"), "x64");
+    }
+
+    #[test]
+    fn normalizes_legacy_java_version() {
+        assert_eq!(parse_version("java version \"1.8.0_392\""), Some("8.0.392".to_string()));
+    }
 }

@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
-import { listen } from "@tauri-apps/api/event";
 import { Users } from "lucide-react";
-import { api } from "@/lib/tauri";
+import { api, listenWithCleanup } from "@/lib/tauri";
 import { PLAYERS_EVENT, type PlayersChangedPayload } from "@/types/events";
 import type { Instance } from "@/types/instance";
 
@@ -27,14 +26,10 @@ export function OnlinePlayersCard({ instance }: { instance: Instance }) {
   }, [instance.id]);
 
   useEffect(() => {
-    let unlisten: (() => void) | undefined;
-    listen<PlayersChangedPayload>(PLAYERS_EVENT, (event) => {
+    return listenWithCleanup<PlayersChangedPayload>(PLAYERS_EVENT, (event) => {
       if (event.payload.instanceId !== instance.id) return;
       setPlayers(event.payload.players);
-    }).then((fn) => {
-      unlisten = fn;
     });
-    return () => unlisten?.();
   }, [instance.id]);
 
   const isRunning = instance.status === "running";

@@ -79,14 +79,46 @@ pub async fn start_instance(app: AppHandle, state: State<'_, AppState>, id: Stri
         disable_forge_update_checker(&working_dir).await;
     }
 
-    let java_path = resolve_java_path(
-        &state.db,
-        instance.java_installation_id.as_deref(),
-        instance.minecraft_version.as_deref(),
-        instance.loader_version.as_deref(),
-        instance.loader,
-    )
-    .await?;
+    let script_manages_java = instance.launch_mode == "script"
+        && instance.java_installation_id.is_none()
+        && script_downloads_java(&working_dir.join(&server_jar)).await;
+    let java_path = if script_manages_java {
+        // The pack's script owns the runtime bootstrap. Passing a selected
+        // JAVA_HOME here would make its "download Java if missing" branch
+        // believe Java is already installed and can also force the wrong
+        // major before the script gets to choose its own runtime.
+        tracing::info!(instance_id = %id, "Allowing server script to select or download Java");
+        "java".to_string()
+    } else if instance.java_installation_id.is_none() {
+        if let Some(path) = find_bundled_compatible_java(
+            &working_dir,
+            instance.minecraft_version.as_deref(),
+            instance.loader_version.as_deref(),
+            instance.loader,
+        )
+        .await?
+        {
+            path
+        } else {
+            resolve_java_path(
+                &state.db,
+                None,
+                instance.minecraft_version.as_deref(),
+                instance.loader_version.as_deref(),
+                instance.loader,
+            )
+            .await?
+        }
+    } else {
+        resolve_java_path(
+            &state.db,
+            instance.java_installation_id.as_deref(),
+            instance.minecraft_version.as_deref(),
+            instance.loader_version.as_deref(),
+            instance.loader,
+        )
+        .await?
+    };
 
     // Minecraft's server console uses JLine, which tries to negotiate real
     // terminal capabilities on startup. That works fine attached to a real
@@ -189,6 +221,91 @@ pub async fn start_instance(app: AppHandle, state: State<'_, AppState>, id: Stri
         .await;
 
     Ok(())
+}
+
+/// Finds and prefers a runtime shipped inside the instance. A bundled JVM is
+/// the strongest compatibility signal available: pack authors tested their
+/// server against it, and it avoids selecting an unrelated system JDK.
+async fn find_bundled_compatible_java(
+    working_dir: &Path,
+    minecraft_version: Option<&str>,
+    loader_version: Option<&str>,
+    loader: ServerLoader,
+) -> Result<Option<String>, String> {
+    let scan_root = working_dir.to_path_buf();
+    let found = tauri::async_runtime::spawn_blocking(move || {
+        crate::java::detect_java_installations_under(&scan_root)
+    })
+    .await
+    .map_err(|error| format!("Bundled Java detection task failed: {error}"))?;
+
+    if found.is_empty() {
+        return Ok(None);
+    }
+
+    let required = minecraft_version
+        .map(str::to_string)
+        .or_else(|| {
+            (loader == ServerLoader::NeoForge)
+                .then(|| loader_version.and_then(crate::importer::minecraft_version_from_neoforge))
+                .flatten()
+        })
+        .and_then(|version| java::required_java_major(Some(&version)));
+
+    let Some(required) = required else {
+        return Ok(None);
+    };
+
+    let mut compatible: Vec<_> = found
+        .into_iter()
+        .filter(|java| java::parse_java_major(&java.version) == Some(required))
+        .collect();
+    compatible.sort_by(|left, right| right.version.cmp(&left.version));
+
+    if let Some(selected) = compatible.first() {
+        tracing::info!(
+            java_path = %selected.path,
+            required_java = required,
+            "Selected bundled Java runtime"
+        );
+        return verify_java_executable(
+            &selected.path,
+            Some(required),
+            minecraft_version,
+            loader,
+            true,
+        )
+        .await
+        .map(Some);
+    }
+
+    Ok(None)
+}
+
+/// Returns true for pack scripts that appear to bootstrap their own JVM.
+/// Those scripts commonly download a runtime only when their expected local
+/// runtime is absent; injecting ModPilot's JVM environment would short-circuit
+/// that branch and can select an incompatible system JDK.
+async fn script_downloads_java(path: &Path) -> bool {
+    let Ok(contents) = tokio::fs::read_to_string(path).await else {
+        return false;
+    };
+    let contents = contents.to_ascii_lowercase();
+    let refers_to_runtime = ["runtime", "\\jre", "/jre", "java_home", "jdk"].iter().any(|term| contents.contains(term));
+    let downloads = [
+        "download",
+        "invoke-webrequest",
+        "curl ",
+        "wget ",
+        "bitsadmin",
+        "certutil",
+        "powershell",
+        "http://",
+        "https://",
+    ]
+    .iter()
+    .any(|term| contents.contains(term));
+    refers_to_runtime && downloads
 }
 
 /// Requests a graceful shutdown by sending Minecraft's own `stop` command.
@@ -582,6 +699,7 @@ async fn verify_java_executable(
     required: Option<u32>,
     minecraft_version: Option<&str>,
     loader: ServerLoader,
+    enforce_required: bool,
 ) -> Result<String, String> {
     let output = tokio::process::Command::new(java_path)
         .arg("-version")
@@ -608,7 +726,7 @@ async fn verify_java_executable(
 
     tracing::info!(java_path, java_version = raw_version, "Verified Java executable");
 
-    if matches!(loader, ServerLoader::Forge | ServerLoader::NeoForge) {
+    if enforce_required {
         if let Some(required) = required {
             if actual != required {
                 return Err(format!(
@@ -647,6 +765,15 @@ pub(crate) async fn resolve_java_path(
     loader_version: Option<&str>,
     loader: ServerLoader,
 ) -> Result<String, String> {
+    // The Java page is not required to be opened before starting a server.
+    // Refresh automatic candidates here so a newly installed JDK or changed
+    // JAVA_HOME is visible without relying on stale database rows.
+    if java_installation_id.is_none() {
+        if let Err(error) = super::java::refresh_java_installations(db).await {
+            tracing::warn!(?error, "Java scan before automatic resolution failed; using cached installations");
+        }
+    }
+
     // A pack imported as a plain server folder often has no Minecraft
     // version of its own, and without one the checks below have nothing to
     // check against - the PATH fallback takes over and launches whatever
@@ -681,12 +808,12 @@ pub(crate) async fn resolve_java_path(
                 );
             }
         }
-        return verify_java_executable(&path, required, minecraft_version, loader).await;
+        return verify_java_executable(&path, required, minecraft_version, loader, false).await;
     }
 
     // Nothing assigned - try to auto-pick a detected install that matches.
     let Some(required) = required else {
-        return verify_java_executable("java", required, minecraft_version, loader).await;
+        return verify_java_executable("java", required, minecraft_version, loader, false).await;
     };
 
     let installations = sqlx::query_as::<_, (String, String)>(
@@ -702,7 +829,7 @@ pub(crate) async fn resolve_java_path(
         .find(|(_, version)| java::parse_java_major(version) == Some(required))
     {
         tracing::info!("Auto-selected Java {required} for Minecraft {}", minecraft_version.unwrap_or("?"));
-        return verify_java_executable(path, Some(required), minecraft_version, loader).await;
+        return verify_java_executable(path, Some(required), minecraft_version, loader, true).await;
     }
 
     // No match installed. For Forge/NeoForge specifically, running on the
@@ -730,7 +857,7 @@ pub(crate) async fn resolve_java_path(
         ));
     }
 
-    verify_java_executable("java", Some(required), minecraft_version, loader).await
+    verify_java_executable("java", Some(required), minecraft_version, loader, true).await
 }
 
 #[cfg(test)]
@@ -796,5 +923,27 @@ mod user_jvm_args_tests {
         apply_ram_to_user_jvm_args(&dir, 1024, 4096).await;
 
         assert!(!dir.join("user_jvm_args.txt").exists());
+    }
+
+    #[tokio::test]
+    async fn recognizes_a_script_that_downloads_its_own_java() {
+        let dir = temp_dir("managed-java");
+        let script = dir.join("run.bat");
+        std::fs::write(
+            &script,
+            "if not exist runtime\\bin\\java.exe powershell Invoke-WebRequest https://example.invalid/jre.zip\n",
+        )
+        .expect("seed script");
+
+        assert!(script_downloads_java(&script).await);
+    }
+
+    #[tokio::test]
+    async fn keeps_a_plain_java_script_on_modpilots_selected_runtime() {
+        let dir = temp_dir("plain-java");
+        let script = dir.join("run.bat");
+        std::fs::write(&script, "java -Xmx4G -jar server.jar nogui\n").expect("seed script");
+
+        assert!(!script_downloads_java(&script).await);
     }
 }

@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { listen } from "@tauri-apps/api/event";
 import { AlertTriangle, Download, Link2, List, RefreshCw, Search, Unlink } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -23,7 +22,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { useInstancesStore } from "@/stores/instancesStore";
-import { api } from "@/lib/tauri";
+import { api, listenWithCleanup } from "@/lib/tauri";
 import type { Instance } from "@/types/instance";
 import {
   FTB_INSTALL_PROGRESS_EVENT,
@@ -302,13 +301,9 @@ export function FtbUpdatesSection({ instance }: { instance: Instance }) {
 
   useEffect(() => {
     if (!isApplying) return;
-    let unlisten: (() => void) | undefined;
-    listen<FtbInstallProgress>(FTB_INSTALL_PROGRESS_EVENT, (event) => {
+    return listenWithCleanup<FtbInstallProgress>(FTB_INSTALL_PROGRESS_EVENT, (event) => {
       setProgress(event.payload);
-    }).then((fn) => {
-      unlisten = fn;
     });
-    return () => unlisten?.();
   }, [isApplying]);
 
   async function handleCheck() {

@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { listen } from "@tauri-apps/api/event";
 import { ArrowLeft, Loader2, Package, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,7 +19,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useInstancesStore } from "@/stores/instancesStore";
-import { api } from "@/lib/tauri";
+import { api, listenWithCleanup } from "@/lib/tauri";
 import { cn } from "@/lib/utils";
 import { INSTANCE_EXISTS_PREFIX } from "@/types/import";
 import type { Instance, ServerLoader } from "@/types/instance";
@@ -130,13 +129,9 @@ export function ModpackBrowsePanel({
 
   useEffect(() => {
     if (!isInstalling) return;
-    let unlisten: (() => void) | undefined;
-    listen<FtbInstallProgress>(FTB_INSTALL_PROGRESS_EVENT, (event) => {
+    return listenWithCleanup<FtbInstallProgress>(FTB_INSTALL_PROGRESS_EVENT, (event) => {
       setProgress(event.payload);
-    }).then((fn) => {
-      unlisten = fn;
     });
-    return () => unlisten?.();
   }, [isInstalling]);
 
   /** Loads the list for a source: search results when there's a term,

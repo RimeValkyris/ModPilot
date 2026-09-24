@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { listen } from "@tauri-apps/api/event";
 import { ArrowLeft, Loader2, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,7 +19,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useInstancesStore } from "@/stores/instancesStore";
-import { api } from "@/lib/tauri";
+import { api, listenWithCleanup } from "@/lib/tauri";
 import { INSTANCE_EXISTS_PREFIX } from "@/types/import";
 import type { Instance } from "@/types/instance";
 import {
@@ -80,13 +79,9 @@ export function FtbImportPanel({ onBack, onInstalled, onBusyChange }: FtbImportP
 
   useEffect(() => {
     if (!isInstalling) return;
-    let unlisten: (() => void) | undefined;
-    listen<FtbInstallProgress>(FTB_INSTALL_PROGRESS_EVENT, (event) => {
+    return listenWithCleanup<FtbInstallProgress>(FTB_INSTALL_PROGRESS_EVENT, (event) => {
       setProgress(event.payload);
-    }).then((fn) => {
-      unlisten = fn;
     });
-    return () => unlisten?.();
   }, [isInstalling]);
 
   async function runSearch() {

@@ -1,10 +1,9 @@
 import { memo, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { listen } from "@tauri-apps/api/event";
 import { AlertTriangle, Search, Send, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { api } from "@/lib/tauri";
+import { api, listenWithCleanup } from "@/lib/tauri";
 import { useAppSetting, useBoolAppSetting } from "@/hooks/useAppSetting";
 import { useInstancesStore } from "@/stores/instancesStore";
 import { LOG_EVENT, type LogLinePayload } from "@/types/events";
@@ -101,14 +100,10 @@ export function Console({ instance }: { instance: Instance }) {
 
   // Live tail: every stdout/stderr line the running process produces.
   useEffect(() => {
-    let unlisten: (() => void) | undefined;
-    listen<LogLinePayload>(LOG_EVENT, (event) => {
+    return listenWithCleanup<LogLinePayload>(LOG_EVENT, (event) => {
       if (event.payload.instanceId !== instance.id) return;
       appendLine(event.payload.stream, event.payload.line);
-    }).then((fn) => {
-      unlisten = fn;
     });
-    return () => unlisten?.();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [instance.id]);
 

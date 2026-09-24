@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { listen } from "@tauri-apps/api/event";
 import { AlertOctagon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { api } from "@/lib/tauri";
+import { api, listenWithCleanup } from "@/lib/tauri";
 import { formatUptime } from "@/lib/format";
 import { CRASH_LOOP_EVENT, type CrashLoopPayload } from "@/types/events";
 import type { Instance, LaunchHistoryEntry } from "@/types/instance";
@@ -57,15 +56,11 @@ export function LaunchHistoryCard({ instance }: { instance: Instance }) {
   }, [instance.status, refresh]);
 
   useEffect(() => {
-    let unlisten: (() => void) | undefined;
-    listen<CrashLoopPayload>(CRASH_LOOP_EVENT, (event) => {
+    return listenWithCleanup<CrashLoopPayload>(CRASH_LOOP_EVENT, (event) => {
       if (event.payload.instanceId !== instance.id) return;
       setCrashLoop(event.payload);
       refresh();
-    }).then((fn) => {
-      unlisten = fn;
     });
-    return () => unlisten?.();
   }, [instance.id, refresh]);
 
   // A fresh start means whatever loop there was is over.
