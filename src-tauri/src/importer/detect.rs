@@ -229,6 +229,9 @@ fn analyze(file_paths: &[String], read: &ReadFile) -> DetectedServerInfo {
         read_ram_hints(file_paths, &lower_paths, read, &info.start_scripts);
 
     detect_loader_and_version(&lower_paths, &root_jars, &mut info);
+    if info.minecraft_version.is_none() {
+        info.minecraft_version = detect_pack_metadata_version(file_paths, &lower_paths, read);
+    }
 
     // A modern (1.17+) Forge/NeoForge server, once actually installed,
     // launches via an argfile instead of a plain jar - takes priority over
@@ -416,6 +419,9 @@ fn detect_loader_and_version(
                 info.loader_version = Some(caps[2].to_string());
             }
         }
+        if info.minecraft_version.is_none() {
+            info.minecraft_version = find_fabric_minecraft_version(lower_paths);
+        }
     } else if any_path_contains("quilt") {
         info.loader = ServerLoader::Quilt;
     } else if root_jars.iter().any(|j| j.to_lowercase() == "server.jar")
@@ -427,6 +433,53 @@ fn detect_loader_and_version(
     }
 
     info.server_jar = pick_server_jar(root_jars, info.loader);
+}
+
+/// Fabric server packs often expose Minecraft only through the vanilla
+/// version directory that Fabric launches, rather than in the Fabric JAR
+/// filename itself.
+fn find_fabric_minecraft_version(lower_paths: &[String]) -> Option<String> {
+    let patterns = [
+        r"(?:^|/)libraries/com/mojang/minecraft/(\d+\.\d+(?:\.\d+)?)/",
+        r"(?:^|/)versions/(\d+\.\d+(?:\.\d+)?)/",
+        r"(?:^|/)server/(\d+\.\d+(?:\.\d+)?)/",
+        r"(?:^|/)minecraft_server[._-](\d+\.\d+(?:\.\d+)?)",
+    ];
+
+    patterns.iter().find_map(|pattern| {
+        let regex = Regex::new(pattern).ok()?;
+        find_capture(lower_paths, &regex, 1)
+    })
+}
+
+/// Reads the two common modpack manifests when the server files do not carry
+/// a version in their filenames. CurseForge exports `minecraft.version` in
+/// `manifest.json`; Modrinth exports the same value as `dependencies.minecraft`
+/// in `modrinth.index.json`.
+fn detect_pack_metadata_version(
+    file_paths: &[String],
+    lower_paths: &[String],
+    read: &ReadFile,
+) -> Option<String> {
+    let candidates = ["manifest.json", "modrinth.index.json"];
+    for candidate in candidates {
+        let Some(path) = existing_path(candidate, file_paths, lower_paths) else {
+            continue;
+        };
+        let Some(contents) = read(&path) else {
+            continue;
+        };
+        let json: serde_json::Value = serde_json::from_str(&contents).ok()?;
+        let version = if candidate == "manifest.json" {
+            json.get("minecraft")?.get("version")?.as_str()
+        } else {
+            json.get("dependencies")?.get("minecraft")?.as_str()
+        }?;
+        if !version.trim().is_empty() {
+            return Some(version.trim().to_string());
+        }
+    }
+    None
 }
 
 /// True for a file name that is a loader installer rather than a runnable
@@ -646,6 +699,53 @@ mod tests {
 
     fn platform_argfile(version: &str) -> String {
         format!("libraries/net/neoforged/neoforge/{version}/{LOADER_ARGFILE_SUFFIX}")
+    }
+
+    #[test]
+    fn reads_minecraft_version_from_curseforge_manifest() {
+        let root = pack(
+            "curseforge-version",
+            &[
+                ("manifest.json", r#"{"minecraft":{"version":"1.18.2"}}"#),
+                ("mods/prominence.jar", "x"),
+            ],
+        );
+
+        let info = detect_from_dir(&root);
+
+        assert_eq!(info.minecraft_version.as_deref(), Some("1.18.2"));
+    }
+
+    #[test]
+    fn reads_minecraft_version_from_modrinth_manifest() {
+        let root = pack(
+            "modrinth-version",
+            &[
+                ("modrinth.index.json", r#"{"dependencies":{"minecraft":"1.18.2"}}"#),
+                ("mods/prominence.jar", "x"),
+            ],
+        );
+
+        let info = detect_from_dir(&root);
+
+        assert_eq!(info.minecraft_version.as_deref(), Some("1.18.2"));
+    }
+
+    #[test]
+    fn reads_fabric_minecraft_version_from_vanilla_version_directory() {
+        let root = pack(
+            "fabric-version-directory",
+            &[
+                ("fabric-server-launch.jar", "x"),
+                ("versions/1.18.2/1.18.2.json", "x"),
+                ("mods/prominence.jar", "x"),
+            ],
+        );
+
+        let info = detect_from_dir(&root);
+
+        assert_eq!(info.loader, ServerLoader::Fabric);
+        assert_eq!(info.minecraft_version.as_deref(), Some("1.18.2"));
     }
 
     /// The shape most modern NeoForge packs actually ship in: mods,

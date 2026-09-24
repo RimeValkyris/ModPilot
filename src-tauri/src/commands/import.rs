@@ -5,8 +5,11 @@ use tauri::{AppHandle, State};
 use uuid::Uuid;
 
 use super::instance::{insert_instance, write_instance_json};
+use super::java::{refresh_java_installations, save_detected_java_installations};
+use super::server::resolve_java_path;
 use crate::filesystem::sanitize_dir_name;
 use crate::importer;
+use crate::java;
 use crate::models::{DetectedServerInfo, ImportInstanceRequest, ImportSource, Instance, ServerStatus};
 use crate::AppState;
 
@@ -112,13 +115,39 @@ pub async fn import_instance(
     }
 
     let launch_mode = detected.launch_mode().to_string();
+    let minecraft_version = request.minecraft_version.or(detected.minecraft_version);
+    let loader = request.loader.unwrap_or(detected.loader);
+    let loader_version = request.loader_version.or(detected.loader_version);
+    if let Err(error) = refresh_java_installations(&state.db).await {
+        tracing::warn!(?error, "Java scan during import failed; launch-time resolution remains available");
+    }
+    let bundled_root = server_dir.clone();
+    match tauri::async_runtime::spawn_blocking(move || {
+        java::detect_java_installations_under(&bundled_root)
+    })
+    .await
+    {
+        Ok(found) => {
+            if let Err(error) = save_detected_java_installations(&state.db, found).await {
+                tracing::warn!(?error, "Bundled Java scan results could not be saved");
+            }
+        }
+        Err(error) => tracing::warn!(?error, "Bundled Java scan during import failed"),
+    }
+    let java_installation_id = auto_assign_java(
+        &state.db,
+        minecraft_version.as_deref(),
+        loader_version.as_deref(),
+        loader,
+    )
+    .await;
     let mut instance = Instance {
         id: Uuid::new_v4().to_string(),
         name,
-        minecraft_version: request.minecraft_version.or(detected.minecraft_version),
-        loader: request.loader.unwrap_or(detected.loader),
-        loader_version: request.loader_version.or(detected.loader_version),
-        java_installation_id: None,
+        minecraft_version,
+        loader,
+        loader_version,
+        java_installation_id,
         min_ram_mb,
         max_ram_mb,
         server_directory: instance_dir.to_string_lossy().to_string(),
@@ -160,6 +189,50 @@ pub async fn import_instance(
     }
 
     Ok(instance)
+}
+
+/// Assigns a matching Java installation during import when the pack's
+/// Minecraft version identifies a required major. Failure is intentionally
+/// non-fatal: Java may be installed later, or the pack may have an unknown
+/// version that can only be resolved when it is launched.
+pub(crate) async fn auto_assign_java(
+    db: &sqlx::SqlitePool,
+    minecraft_version: Option<&str>,
+    loader_version: Option<&str>,
+    loader: crate::models::ServerLoader,
+) -> Option<String> {
+    let effective_mc_version = minecraft_version.map(str::to_string).or_else(|| {
+        (loader == crate::models::ServerLoader::NeoForge)
+            .then(|| loader_version.and_then(crate::importer::minecraft_version_from_neoforge))
+            .flatten()
+    });
+    let required = java::required_java_major(effective_mc_version.as_deref())?;
+    let path = match resolve_java_path(db, None, minecraft_version, loader_version, loader).await {
+        Ok(path) if path != "java" => path,
+        Ok(_) => return None,
+        Err(error) => {
+            tracing::info!(
+                ?error,
+                required_java = required,
+                "No matching Java installation assigned during import"
+            );
+            return None;
+        }
+    };
+
+    let id = sqlx::query_scalar::<_, String>(
+        "SELECT id FROM java_installations WHERE path = ? LIMIT 1",
+    )
+    .bind(&path)
+    .fetch_optional(db)
+    .await
+    .ok()
+    .flatten();
+
+    if id.is_some() {
+        tracing::info!(java_path = %path, required_java = required, "Assigned Java during import");
+    }
+    id
 }
 
 /// Runs the loader installer for a freshly-imported pack and records what

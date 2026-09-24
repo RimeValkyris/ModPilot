@@ -574,6 +574,55 @@ async fn ensure_eula_accepted(working_dir: &Path) -> Result<(), String> {
     .map_err(|e| format!("Failed to write eula.txt: {e}"))
 }
 
+/// Verifies the executable that will actually be launched rather than
+/// trusting the version cached during Java discovery. A replaced JDK or a
+/// stale database row must not make a server appear to be pinned to Java 17.
+async fn verify_java_executable(
+    java_path: &str,
+    required: Option<u32>,
+    minecraft_version: Option<&str>,
+    loader: ServerLoader,
+) -> Result<String, String> {
+    let output = tokio::process::Command::new(java_path)
+        .arg("-version")
+        .output()
+        .await
+        .map_err(|error| format!("Unable to run Java executable \"{java_path}\": {error}"))?;
+
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stderr),
+        String::from_utf8_lossy(&output.stdout)
+    );
+    let raw_version = text
+        .split("version \"")
+        .nth(1)
+        .and_then(|rest| rest.split('"').next())
+        .ok_or_else(|| format!("Java executable \"{java_path}\" did not report a version"))?;
+    let normalized_version = raw_version.strip_prefix("1.").unwrap_or(raw_version);
+    let actual = normalized_version
+        .split('.')
+        .next()
+        .and_then(|major| major.parse::<u32>().ok())
+        .ok_or_else(|| format!("Could not determine the Java major version from \"{raw_version}\""))?;
+
+    tracing::info!(java_path, java_version = raw_version, "Verified Java executable");
+
+    if matches!(loader, ServerLoader::Forge | ServerLoader::NeoForge) {
+        if let Some(required) = required {
+            if actual != required {
+                return Err(format!(
+                    "Java mismatch: ModPilot is about to launch \"{java_path}\" as Java {actual}, but Minecraft {} on {} requires Java {required}. Select a Java {required} installation for this instance.",
+                    minecraft_version.unwrap_or("?"),
+                    loader.as_str(),
+                ));
+            }
+        }
+    }
+
+    Ok(java_path.to_string())
+}
+
 /// Picks the JVM to launch an instance with.
 ///
 /// An explicitly-assigned installation always wins - that's the operator's
@@ -632,16 +681,17 @@ pub(crate) async fn resolve_java_path(
                 );
             }
         }
-        return Ok(path);
+        return verify_java_executable(&path, required, minecraft_version, loader).await;
     }
 
     // Nothing assigned - try to auto-pick a detected install that matches.
     let Some(required) = required else {
-        return Ok("java".to_string()); // unknown MC version: nothing better to go on
+        return verify_java_executable("java", required, minecraft_version, loader).await;
     };
 
     let installations = sqlx::query_as::<_, (String, String)>(
-        "SELECT path, version FROM java_installations",
+        "SELECT path, version FROM java_installations
+         ORDER BY is_default DESC, detected_at DESC, version DESC",
     )
     .fetch_all(db)
     .await
@@ -652,7 +702,7 @@ pub(crate) async fn resolve_java_path(
         .find(|(_, version)| java::parse_java_major(version) == Some(required))
     {
         tracing::info!("Auto-selected Java {required} for Minecraft {}", minecraft_version.unwrap_or("?"));
-        return Ok(path.clone());
+        return verify_java_executable(path, Some(required), minecraft_version, loader).await;
     }
 
     // No match installed. For Forge/NeoForge specifically, running on the
@@ -680,7 +730,7 @@ pub(crate) async fn resolve_java_path(
         ));
     }
 
-    Ok("java".to_string())
+    verify_java_executable("java", Some(required), minecraft_version, loader).await
 }
 
 #[cfg(test)]

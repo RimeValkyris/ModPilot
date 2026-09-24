@@ -14,7 +14,8 @@ const JAVA_COLUMNS: &str = "id, version, vendor, path, architecture, is_default,
 #[tauri::command]
 pub async fn list_java_installations(state: State<'_, AppState>) -> Result<Vec<JavaInstallation>, String> {
     let rows = sqlx::query_as::<_, JavaInstallationRow>(&format!(
-        "SELECT {JAVA_COLUMNS} FROM java_installations ORDER BY version DESC"
+        "SELECT {JAVA_COLUMNS} FROM java_installations
+         ORDER BY is_default DESC, detected_at DESC, version DESC"
     ))
     .fetch_all(&state.db)
     .await
@@ -35,10 +36,24 @@ pub async fn list_java_installations(state: State<'_, AppState>) -> Result<Vec<J
 /// right now".
 #[tauri::command]
 pub async fn detect_java_installations(state: State<'_, AppState>) -> Result<Vec<JavaInstallation>, String> {
+    refresh_java_installations(&state.db).await?;
+    list_java_installations(state).await
+}
+
+/// Scans the host and persists the discovered installations for workflows
+/// that need Java resolution without going through the Java page first.
+pub(crate) async fn refresh_java_installations(db: &sqlx::SqlitePool) -> Result<(), String> {
     let found = tauri::async_runtime::spawn_blocking(java::detect_java_installations)
         .await
         .map_err(|e| format!("Java detection task failed: {e}"))?;
 
+    save_detected_java_installations(db, found).await
+}
+
+pub(crate) async fn save_detected_java_installations(
+    db: &sqlx::SqlitePool,
+    found: Vec<crate::models::DetectedJava>,
+) -> Result<(), String> {
     for detected in found {
         sqlx::query(
             "INSERT INTO java_installations (id, version, vendor, path, architecture, is_default, detected_at)
@@ -55,14 +70,12 @@ pub async fn detect_java_installations(state: State<'_, AppState>) -> Result<Vec
         .bind(&detected.path)
         .bind(&detected.architecture)
         .bind(Utc::now())
-        .execute(&state.db)
+        .execute(db)
         .await
         .map_err(|e| format!("Failed to save detected Java installation: {e}"))?;
     }
 
-    prune_stale_installations(&state).await?;
-
-    list_java_installations(state).await
+    prune_stale_installations(db).await
 }
 
 /// Removes DB rows for Java installations that are provably invalid: the
@@ -74,9 +87,9 @@ pub async fn detect_java_installations(state: State<'_, AppState>) -> Result<Vec
 /// coming back - it's safe to clear them automatically instead of making
 /// every affected user find Settings -> Danger Zone -> "Forget all Java
 /// installations" themselves.
-async fn prune_stale_installations(state: &State<'_, AppState>) -> Result<(), String> {
+async fn prune_stale_installations(db: &sqlx::SqlitePool) -> Result<(), String> {
     let rows: Vec<(String, String)> = sqlx::query_as("SELECT id, path FROM java_installations")
-        .fetch_all(&state.db)
+        .fetch_all(db)
         .await
         .map_err(|e| format!("Failed to read Java installations: {e}"))?;
 
@@ -86,7 +99,7 @@ async fn prune_stale_installations(state: &State<'_, AppState>) -> Result<(), St
         if is_stale {
             sqlx::query("DELETE FROM java_installations WHERE id = ?")
                 .bind(&id)
-                .execute(&state.db)
+                .execute(db)
                 .await
                 .map_err(|e| format!("Failed to remove stale Java installation: {e}"))?;
         }

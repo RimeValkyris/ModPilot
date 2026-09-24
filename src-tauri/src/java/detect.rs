@@ -91,6 +91,47 @@ fn probe(java_path: &Path) -> Option<DetectedJava> {
     })
 }
 
+/// Finds Java executables bundled inside an imported server pack. Pack
+/// launchers commonly place these under `runtime`, `jre`, or `jdk` folders,
+/// several levels below the server root.
+pub fn detect_java_installations_under(root: &Path) -> Vec<DetectedJava> {
+    let mut seen = HashSet::new();
+    let mut results = Vec::new();
+
+    for entry in walkdir::WalkDir::new(root)
+        .follow_links(false)
+        .into_iter()
+        .filter_map(Result::ok)
+    {
+        if !entry.file_type().is_file() {
+            continue;
+        }
+        let path = entry.path();
+        let is_java = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.eq_ignore_ascii_case(JAVA_EXE));
+        let looks_bundled = path.components().any(|component| {
+            matches!(
+                component.as_os_str().to_str().map(str::to_ascii_lowercase).as_deref(),
+                Some("runtime") | Some("jre") | Some("jdk")
+            )
+        });
+        if !is_java || !looks_bundled {
+            continue;
+        }
+        let canonical = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+        if !seen.insert(canonical.clone()) {
+            continue;
+        }
+        if let Some(detected) = probe(&canonical) {
+            results.push(detected);
+        }
+    }
+
+    results
+}
+
 /// Extracts the quoted version string, e.g. `"21.0.2"` or `"1.8.0_392"`,
 /// and normalizes it to a plain major-version-led string (`"21.0.2"`,
 /// `"8.0.392"`) so both old and new numbering schemes display consistently.

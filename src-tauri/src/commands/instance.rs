@@ -5,6 +5,8 @@ use tauri::State;
 use uuid::Uuid;
 
 use super::settings::get_setting;
+use super::import::auto_assign_java;
+use super::java::{refresh_java_installations, save_detected_java_installations};
 use crate::filesystem::sanitize_dir_name;
 use crate::importer;
 use crate::models::{
@@ -367,7 +369,8 @@ pub async fn redetect_instance_launch(state: State<'_, AppState>, id: String) ->
         return Err("This instance has no server folder to scan.".to_string());
     }
 
-    let detected = tauri::async_runtime::spawn_blocking(move || importer::detect_from_dir(&server_dir))
+    let detection_root = server_dir.clone();
+    let detected = tauri::async_runtime::spawn_blocking(move || importer::detect_from_dir(&detection_root))
         .await
         .map_err(|e| format!("Detection task failed: {e}"))?;
 
@@ -382,12 +385,49 @@ pub async fn redetect_instance_launch(state: State<'_, AppState>, id: String) ->
     } else {
         instance.loader
     };
+    let minecraft_version = instance
+        .minecraft_version
+        .clone()
+        .or(detected.minecraft_version.clone());
+    let loader_version = instance
+        .loader_version
+        .clone()
+        .or(detected.loader_version.clone());
+    if instance.java_installation_id.is_none() {
+        if let Err(error) = refresh_java_installations(&state.db).await {
+            tracing::warn!(?error, "Java scan during re-detection failed");
+        }
+        let bundled_root = server_dir.clone();
+        match tauri::async_runtime::spawn_blocking(move || {
+            crate::java::detect_java_installations_under(&bundled_root)
+        })
+        .await
+        {
+            Ok(found) => {
+                if let Err(error) = save_detected_java_installations(&state.db, found).await {
+                    tracing::warn!(?error, "Bundled Java scan results could not be saved");
+                }
+            }
+            Err(error) => tracing::warn!(?error, "Bundled Java scan during re-detection failed"),
+        }
+    }
+    let java_installation_id = match instance.java_installation_id.clone() {
+        Some(id) => Some(id),
+        None => auto_assign_java(
+            &state.db,
+            minecraft_version.as_deref(),
+            loader_version.as_deref(),
+            loader,
+        )
+        .await,
+    };
 
     sqlx::query(
         "UPDATE instances
          SET server_jar = ?, launch_mode = ?, loader = ?,
              minecraft_version = COALESCE(minecraft_version, ?),
-             loader_version = COALESCE(loader_version, ?)
+             loader_version = COALESCE(loader_version, ?),
+             java_installation_id = COALESCE(java_installation_id, ?)
          WHERE id = ?",
     )
     .bind(&server_jar)
@@ -395,6 +435,7 @@ pub async fn redetect_instance_launch(state: State<'_, AppState>, id: String) ->
     .bind(loader.as_str())
     .bind(&detected.minecraft_version)
     .bind(&detected.loader_version)
+    .bind(&java_installation_id)
     .bind(&id)
     .execute(&state.db)
     .await
@@ -475,13 +516,28 @@ pub async fn update_instance_settings(
 }
 
 /// Assigns (or clears, with `java_installation_id: None`) which detected
-/// Java installation an instance launches with.
+/// Java installation an instance launches with. The instance snapshot is
+/// rewritten as part of the change so its Java assignment never goes stale.
 #[tauri::command]
 pub async fn set_instance_java(
     state: State<'_, AppState>,
     id: String,
     java_installation_id: Option<String>,
 ) -> Result<Instance, String> {
+    if let Some(java_id) = java_installation_id.as_deref() {
+        let exists: Option<String> = sqlx::query_scalar(
+            "SELECT path FROM java_installations WHERE id = ?",
+        )
+        .bind(java_id)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(|e| format!("Failed to validate Java installation: {e}"))?;
+
+        if exists.is_none() {
+            return Err("Java installation not found. Rescan Java and select it again.".to_string());
+        }
+    }
+
     let result = sqlx::query("UPDATE instances SET java_installation_id = ? WHERE id = ?")
         .bind(&java_installation_id)
         .bind(&id)
@@ -493,9 +549,15 @@ pub async fn set_instance_java(
         return Err("Instance not found".to_string());
     }
 
-    fetch_instance(&state, &id)
+    let instance = fetch_instance(&state, &id)
         .await?
-        .ok_or_else(|| "Instance not found".to_string())
+        .ok_or_else(|| "Instance not found".to_string())?;
+
+    if let Err(e) = write_instance_json(Path::new(&instance.server_directory), &instance).await {
+        tracing::warn!("Instance {id} Java assignment updated, but instance.json update failed: {e}");
+    }
+
+    Ok(instance)
 }
 
 /// Deletes an instance's DB record and its entire on-disk directory,
