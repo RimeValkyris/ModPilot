@@ -188,6 +188,7 @@ export function InstanceCard({ instance }: { instance: Instance }) {
                   variant="ghost"
                   size="icon-sm"
                   className="bg-black/40 text-white hover:bg-black/60"
+                  aria-label="Instance actions"
                 />
               }
             >

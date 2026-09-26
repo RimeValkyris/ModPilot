@@ -122,7 +122,13 @@ function PlayerListEditor({ instanceId, config }: { instanceId: string; config: 
                     : ""}
                 </p>
               </div>
-              <Button variant="ghost" size="icon-sm" onClick={() => handleRemove(index)}>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                title="Remove"
+                aria-label="Remove"
+                onClick={() => handleRemove(index)}
+              >
                 <Trash2 />
               </Button>
             </li>

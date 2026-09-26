@@ -186,6 +186,14 @@ pub fn create_zip_from_dir(src_dir: &Path, dest_zip: &Path) -> std::io::Result<(
         }
         let name = rel_path.to_string_lossy().replace('\\', "/");
 
+        // A running server holds a byte-range lock on this for its whole
+        // lifetime, which on Windows makes reading it fail outright - and
+        // with it the entire backup. It carries no world data; Minecraft
+        // recreates it on the next start.
+        if name == "session.lock" {
+            continue;
+        }
+
         if entry.file_type().is_dir() {
             zip.add_directory(format!("{name}/"), options)?;
         } else if entry.file_type().is_file() {
@@ -205,21 +213,37 @@ pub fn create_zip_from_dir(src_dir: &Path, dest_zip: &Path) -> std::io::Result<(
 /// Symlinks are skipped deliberately: following one could copy files from
 /// outside the folder the user actually picked.
 pub fn copy_dir_recursive(src_root: &Path, dest_root: &Path) -> std::io::Result<()> {
+    copy_dir_inner(src_root, dest_root, true)
+}
+
+/// Recursively copies a directory tree exactly as it is - the counterpart
+/// of [`extract_zip_verbatim`]. For moving or duplicating an instance's own
+/// files, where a folder that happens to hold everything under one
+/// subfolder is real layout, not an import wrapper to be dissolved.
+pub fn copy_dir_verbatim(src_root: &Path, dest_root: &Path) -> std::io::Result<()> {
+    copy_dir_inner(src_root, dest_root, false)
+}
+
+fn copy_dir_inner(src_root: &Path, dest_root: &Path, strip_wrapper: bool) -> std::io::Result<()> {
     // Same wrapping-folder check as the ZIP path (see `detect_wrapper_folder`)
     // - e.g. the user picked a folder that's itself just an extracted
     // archive still wrapped in a directory matching the pack's name.
-    let file_names: Vec<String> = walkdir::WalkDir::new(src_root)
-        .into_iter()
-        .filter_map(Result::ok)
-        .filter(|e| e.file_type().is_file())
-        .filter_map(|e| {
-            e.path()
-                .strip_prefix(src_root)
-                .ok()
-                .map(|p| p.to_string_lossy().replace('\\', "/"))
-        })
-        .collect();
-    let wrapper_prefix = detect_wrapper_folder(&file_names).map(|w| format!("{w}/"));
+    let wrapper_prefix = if strip_wrapper {
+        let file_names: Vec<String> = walkdir::WalkDir::new(src_root)
+            .into_iter()
+            .filter_map(Result::ok)
+            .filter(|e| e.file_type().is_file())
+            .filter_map(|e| {
+                e.path()
+                    .strip_prefix(src_root)
+                    .ok()
+                    .map(|p| p.to_string_lossy().replace('\\', "/"))
+            })
+            .collect();
+        detect_wrapper_folder(&file_names).map(|w| format!("{w}/"))
+    } else {
+        None
+    };
 
     for entry in walkdir::WalkDir::new(src_root) {
         let entry = entry.map_err(std::io::Error::other)?;

@@ -186,14 +186,16 @@ export function InstanceFilesTab({ instance }: { instance: Instance }) {
                 key={backup.name}
                 className="flex items-center justify-between gap-3 rounded-lg border border-border p-2.5 text-sm"
               >
-                <div>
-                  <p className="font-medium">{backup.name}</p>
+                <div className="min-w-0">
+                  <p className="truncate font-medium" title={backup.name}>
+                    {backup.name}
+                  </p>
                   <p className="text-xs text-muted-foreground">
                     {formatFileSize(backup.sizeBytes)} ·{" "}
                     {new Date(backup.createdAt).toLocaleString()}
                   </p>
                 </div>
-                <div className="flex gap-1.5">
+                <div className="flex shrink-0 gap-1.5">
                   <Button
                     variant="outline"
                     size="icon-sm"
@@ -215,6 +217,7 @@ export function InstanceFilesTab({ instance }: { instance: Instance }) {
                   <Button
                     variant="outline"
                     size="icon-sm"
+                    title="Delete this backup"
                     onClick={() => setPendingDelete(backup.name)}
                   >
                     <Trash2 />

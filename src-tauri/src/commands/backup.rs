@@ -26,18 +26,25 @@ const REQUIRED_FREE_MARGIN_BYTES: u64 = 1024 * 1024 * 1024;
 /// Path::new(r"D:\inst\demoackups").join("C:evil.zip")  ==  "C:evil.zip"
 /// ```
 ///
-/// `"C:evil.zip"` has no separator and no `..`, so a blocklist waves it
-/// through and the resulting path lands outside the instance's folder.
-/// Permitting only characters that appear in names this module generates
-/// removes that whole class of trick rather than enumerating it.
+/// `"C:evil.zip"` has no separator and no `..`, so a blocklist of only
+/// those waves it through and the resulting path lands outside the
+/// instance's folder - hence `:` being refused as well.
+///
+/// This can't be a strict ASCII allowlist: a backup is named after its
+/// world (`My World-20260101-120000.zip`), and world names routinely carry
+/// spaces and non-ASCII letters. An allowlist that rejected those left such
+/// backups listed but impossible to verify, restore or delete - and
+/// silently exempt from scheduled pruning. The rules below mirror what
+/// `detect_world_folder_name` already accepts for the world itself.
 fn validate_backup_name(name: &str) -> Result<(), String> {
-    let safe = !name.is_empty()
-        && name.len() <= 255
+    let safe = name.len() <= 255
         && name.ends_with(".zip")
+        && name != ".zip"
+        && !name.contains('/')
+        && !name.contains('\\')
+        && !name.contains(':')
         && !name.contains("..")
-        && name
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'));
+        && !name.chars().any(char::is_control);
     if safe {
         Ok(())
     } else {
@@ -114,24 +121,91 @@ pub async fn create_world_backup(state: State<'_, AppState>, id: String) -> Resu
     let file_name = format!("{world_name}-{}.zip", Utc::now().format("%Y%m%d-%H%M%S"));
     let dest = backups_dir.join(&file_name);
 
+    // A running server rewrites region files continuously, so zipping them
+    // as-is captures chunks half-written. Autosave is paused and everything
+    // flushed first, then resumed whatever the outcome of the zip.
+    let live = state.processes.is_running(&id).await;
+    if live {
+        pause_saving_for_backup(&state, &id).await;
+    }
+
     // Written and then read back before the backup is announced as
     // existing. A truncated or unreadable archive that still *looks* like a
     // backup in the listing is worse than no backup at all: it is only
     // discovered at the moment someone is relying on it, and it is deleted
     // here so it can never be that moment's answer.
     let verify_dest = dest.clone();
-    tauri::async_runtime::spawn_blocking(move || {
+    let result = tauri::async_runtime::spawn_blocking(move || {
         importer::create_zip_from_dir(&world_dir, &dest)?;
         importer::verify_zip(&dest)
     })
-    .await
-    .map_err(|e| format!("Backup task failed: {e}"))?
-    .map_err(|e| {
-        let _ = std::fs::remove_file(&verify_dest);
-        format!("Backup failed verification and was discarded: {e}")
-    })?;
+    .await;
+
+    if live {
+        if let Err(e) = state.processes.write_line(&id, "save-on").await {
+            tracing::warn!("Couldn't re-enable saving on {id} after a backup: {e}");
+        }
+    }
+
+    result
+        .map_err(|e| format!("Backup task failed: {e}"))?
+        .map_err(|e| {
+            let _ = std::fs::remove_file(&verify_dest);
+            format!("Backup failed verification and was discarded: {e}")
+        })?;
 
     Ok(file_name)
+}
+
+/// How long to wait for a running server to confirm `save-all flush`
+/// before backing up anyway. A large modded world can take a while.
+const SAVE_FLUSH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// Turns autosave off and flushes the world to disk, waiting for the
+/// server's own "Saved the game" line in `logs/latest.log` (the console log
+/// this app writes) rather than guessing how long a flush takes.
+///
+/// Best-effort: if the server never confirms - still starting, or a pack
+/// that silences the message - the backup goes ahead after the timeout
+/// rather than failing, since an unflushed backup still beats none.
+async fn pause_saving_for_backup(state: &State<'_, AppState>, id: &str) {
+    let log_path = match fetch_instance(state, id).await {
+        Ok(Some(instance)) => Path::new(&instance.server_directory).join("logs").join("latest.log"),
+        _ => return,
+    };
+    let start_len = tokio::fs::metadata(&log_path).await.map(|m| m.len()).unwrap_or(0);
+
+    for command in ["save-off", "save-all flush"] {
+        if let Err(e) = state.processes.write_line(id, command).await {
+            tracing::warn!("Couldn't send {command} to {id} before a backup: {e}");
+            return;
+        }
+    }
+
+    let deadline = tokio::time::Instant::now() + SAVE_FLUSH_TIMEOUT;
+    while tokio::time::Instant::now() < deadline {
+        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+        if log_mentions_save_since(&log_path, start_len).await {
+            return;
+        }
+    }
+    tracing::warn!("{id} didn't confirm its save within {SAVE_FLUSH_TIMEOUT:?}; backing up anyway");
+}
+
+async fn log_mentions_save_since(log_path: &Path, offset: u64) -> bool {
+    use tokio::io::{AsyncReadExt, AsyncSeekExt};
+
+    let Ok(mut file) = tokio::fs::File::open(log_path).await else {
+        return false;
+    };
+    if file.seek(std::io::SeekFrom::Start(offset)).await.is_err() {
+        return false;
+    }
+    let mut appended = Vec::new();
+    if file.read_to_end(&mut appended).await.is_err() {
+        return false;
+    }
+    String::from_utf8_lossy(&appended).contains("Saved the game")
 }
 
 /// Reads a saved backup all the way through to confirm it can actually be
@@ -513,6 +587,8 @@ mod tests {
     #[test]
     fn backup_names_cannot_escape_the_backups_folder() {
         assert!(validate_backup_name("world-20260101-120000.zip").is_ok());
+        // Named after a world with spaces and non-ASCII letters.
+        assert!(validate_backup_name("My Welt ü-20260101-120000.zip").is_ok());
         assert!(validate_backup_name("../../etc/passwd.zip").is_err());
         assert!(validate_backup_name("sub/dir.zip").is_err());
         assert!(validate_backup_name("sub\\dir.zip").is_err());

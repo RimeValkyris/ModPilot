@@ -2,6 +2,8 @@ use std::io::Read;
 use std::path::Path;
 use std::sync::OnceLock;
 
+use sha1::Digest;
+
 use crate::models::{
     AppliedPack, ModrinthProject, ModrinthSearchHit, ModrinthSearchResponse, ModrinthVersion,
     ModrinthVersionFile, ModrinthVersionPreview, MrpackIndex, ServerLoader,
@@ -320,7 +322,22 @@ where
         let Some(url) = file.downloads.first() else {
             continue;
         };
+        // These jars end up running inside the server, so a plain-http
+        // download (swappable by anyone on the network path) or one that
+        // doesn't match the pack's own checksum is refused outright.
+        if !url.starts_with("https://") {
+            return Err(format!("Refusing to download \"{relative}\" over an insecure link: {url}"));
+        }
+        let Some(expected_sha1) = file.hashes.get("sha1").map(|h| h.to_lowercase()) else {
+            return Err(format!("The pack lists no checksum for \"{relative}\", so it can't be verified"));
+        };
         let bytes = download_bytes(url).await?;
+        let actual_sha1 = format!("{:x}", sha1::Sha1::digest(&bytes));
+        if actual_sha1 != expected_sha1 {
+            return Err(format!(
+                "\"{relative}\" failed its checksum (expected {expected_sha1}, got {actual_sha1}), so nothing was changed"
+            ));
+        }
         let dest = join_relative(&staging, &relative);
         if let Some(parent) = dest.parent() {
             tokio::fs::create_dir_all(parent)

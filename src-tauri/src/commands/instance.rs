@@ -170,7 +170,7 @@ pub async fn duplicate_instance(
         let source_server_dir = source_server_dir.clone();
         let new_server_dir = new_server_dir.clone();
         tauri::async_runtime::spawn_blocking(move || {
-            importer::copy_dir_recursive(&source_server_dir, &new_server_dir)
+            importer::copy_dir_verbatim(&source_server_dir, &new_server_dir)
         })
         .await
         .map_err(|e| format!("Copy task failed: {e}"))?

@@ -7,6 +7,6 @@ pub use detect::{
     START_SCRIPT_NAMES,
 };
 pub use extract::{
-    copy_dir_recursive, create_zip_from_dir, extract_zip_safely, extract_zip_verbatim,
+    copy_dir_recursive, copy_dir_verbatim, create_zip_from_dir, extract_zip_safely, extract_zip_verbatim,
     verify_zip,
 };

@@ -153,20 +153,65 @@ fn script_command(script: &str, java_path: &str) -> tokio::process::Command {
         command
     };
 
-    let java_bin = std::path::Path::new(java_path).parent();
-    if let Some(bin) = java_bin {
-        if let Some(home) = bin.parent() {
-            command.env("JAVA_HOME", home);
-        }
-        let existing = std::env::var_os("PATH").unwrap_or_default();
-        let mut entries = vec![bin.to_path_buf()];
-        entries.extend(std::env::split_paths(&existing));
-        if let Ok(joined) = std::env::join_paths(entries) {
-            command.env("PATH", joined);
-        }
+    // A bare `java` (the script manages its own runtime) has an empty
+    // parent, which must not become an empty `PATH` entry.
+    let java_bin = std::path::Path::new(java_path)
+        .parent()
+        .filter(|bin| !bin.as_os_str().is_empty());
+    if let Some(home) = java_bin.and_then(std::path::Path::parent) {
+        command.env("JAVA_HOME", home);
+    }
+
+    let existing = std::env::var_os("PATH").unwrap_or_default();
+    #[cfg(windows)]
+    let system_root = std::env::var_os("SystemRoot").map(PathBuf::from);
+    #[cfg(not(windows))]
+    let system_root: Option<PathBuf> = None;
+    let entries = script_path_entries(&existing, java_bin, system_root.as_deref());
+    if let Ok(joined) = std::env::join_paths(entries) {
+        command.env("PATH", joined);
     }
 
     command
+}
+
+/// The `PATH` a start script runs with: the instance's Java first, then
+/// the inherited `PATH` untouched, then any of Windows' own tool
+/// directories that `PATH` is missing. Pack scripts routinely call
+/// `powershell`, `curl` or `certutil` by name, and a machine whose system
+/// `PATH` was overwritten (a common result of hand-setting Java) otherwise
+/// fails with "'PowerShell' is not recognized". Appending rather than
+/// prepending means nothing the user put on `PATH` is ever shadowed.
+fn script_path_entries(
+    existing: &std::ffi::OsStr,
+    java_bin: Option<&std::path::Path>,
+    system_root: Option<&std::path::Path>,
+) -> Vec<PathBuf> {
+    let mut entries: Vec<PathBuf> = java_bin.map(|bin| bin.to_path_buf()).into_iter().collect();
+    entries.extend(std::env::split_paths(existing));
+
+    if let Some(root) = system_root {
+        // Windows paths are case-insensitive and often carry a trailing
+        // separator, so compare on a normalized form.
+        let normalize = |path: &std::path::Path| {
+            path.to_string_lossy().trim_end_matches(['\\', '/']).to_ascii_lowercase()
+        };
+        let system32 = root.join("System32");
+        let defaults = [
+            system32.clone(),
+            root.to_path_buf(),
+            system32.join("Wbem"),
+            system32.join("WindowsPowerShell").join("v1.0"),
+        ];
+        for dir in defaults {
+            let wanted = normalize(&dir);
+            if !entries.iter().any(|entry| normalize(entry) == wanted) {
+                entries.push(dir);
+            }
+        }
+    }
+
+    entries
 }
 
 /// Force-kills a process and everything it spawned. Only needed for
@@ -642,4 +687,44 @@ fn watch_for_stuck_startup(
             return; // one notice per start attempt, not a repeat every 15s
         }
     });
+}
+
+#[cfg(all(test, windows))]
+mod tests {
+    use super::*;
+    use std::ffi::OsString;
+    use std::path::Path;
+
+    #[test]
+    fn restores_windows_tool_dirs_missing_from_an_overwritten_path() {
+        // The reported case: system PATH replaced by just a JDK's bin.
+        let existing = OsString::from(r"C:\Program Files\Java\jdk-17\bin");
+        let entries = script_path_entries(
+            &existing,
+            Some(Path::new(r"C:\Java\17\bin")),
+            Some(Path::new(r"C:\Windows")),
+        );
+
+        assert_eq!(
+            entries,
+            vec![
+                PathBuf::from(r"C:\Java\17\bin"),
+                PathBuf::from(r"C:\Program Files\Java\jdk-17\bin"),
+                PathBuf::from(r"C:\Windows\System32"),
+                PathBuf::from(r"C:\Windows"),
+                PathBuf::from(r"C:\Windows\System32\Wbem"),
+                PathBuf::from(r"C:\Windows\System32\WindowsPowerShell\v1.0"),
+            ]
+        );
+    }
+
+    #[test]
+    fn leaves_a_healthy_path_alone() {
+        let existing = OsString::from(
+            r"c:\windows\system32;C:\WINDOWS;C:\Windows\System32\Wbem\;C:\Windows\System32\WindowsPowerShell\v1.0\",
+        );
+        let entries = script_path_entries(&existing, None, Some(Path::new(r"C:\Windows")));
+
+        assert_eq!(entries, std::env::split_paths(&existing).collect::<Vec<_>>());
+    }
 }

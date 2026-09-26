@@ -81,6 +81,11 @@ pub struct ModpackUpdateCheck {
 pub(crate) struct MrpackFile {
     pub path: String,
     pub downloads: Vec<String>,
+    /// Required by the mrpack format (`sha1` and `sha512`). Checked against
+    /// every download, since `downloads` points wherever the pack's author
+    /// chose rather than only at Modrinth's own CDN.
+    #[serde(default)]
+    pub hashes: std::collections::HashMap<String, String>,
     #[serde(default)]
     pub env: Option<MrpackEnv>,
 }

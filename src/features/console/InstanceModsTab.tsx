@@ -148,7 +148,13 @@ export function InstanceModsTab({ instance }: { instance: Instance }) {
                 <span className="text-xs text-muted-foreground">
                   {formatFileSize(mod.sizeBytes)}
                 </span>
-                <Button variant="ghost" size="icon-sm" onClick={() => setPendingDelete(mod)}>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  title="Delete mod"
+                  aria-label={`Delete ${mod.displayName}`}
+                  onClick={() => setPendingDelete(mod)}
+                >
                   <Trash2 />
                 </Button>
               </div>

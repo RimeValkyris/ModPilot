@@ -68,14 +68,22 @@ pub async fn write_pack_manifest(
 /// undo whitelist/op/ban changes and settings the operator chose
 /// deliberately - and replacing the world folder would destroy the save.
 pub fn is_protected_path(relative_path: &str, world_folder_name: &str) -> bool {
-    let normalized = relative_path.replace('\\', "/");
+    // Compared on the same segments `join_relative` will actually write
+    // to, and case- and trailing-dot-insensitively: Windows treats
+    // `./OPS.json.` as `ops.json`, so a plain string comparison would let a
+    // pack overwrite the operator list by spelling it differently.
+    let normalized = relative_segments(relative_path)
+        .map(|segment| segment.trim_end_matches(['.', ' ']).to_lowercase())
+        .collect::<Vec<_>>()
+        .join("/");
+    let world = world_folder_name.to_lowercase();
     normalized == "server.properties"
         || normalized == "whitelist.json"
         || normalized == "ops.json"
         || normalized == "banned-players.json"
         || normalized == "banned-ips.json"
         || normalized == "eula.txt"
-        || normalized.starts_with(&format!("{world_folder_name}/"))
+        || normalized.starts_with(&format!("{world}/"))
 }
 
 /// Joins a `/`-separated relative path onto a base directory one segment at
@@ -83,12 +91,20 @@ pub fn is_protected_path(relative_path: &str, world_folder_name: &str) -> bool {
 /// baked into the source string, and can't escape `base`.
 pub fn join_relative(base: &Path, relative: &str) -> PathBuf {
     let mut out = base.to_path_buf();
-    out.extend(
-        relative
-            .split('/')
-            .filter(|s| !s.is_empty() && *s != "." && *s != ".."),
-    );
+    out.extend(relative_segments(relative));
     out
+}
+
+/// The segments of a pack-supplied relative path that are safe to join.
+///
+/// Drops empty, `.` and `..` segments, and any containing `:`. The last is
+/// the Windows-specific one: a drive-relative segment like `C:evil` carries
+/// a path prefix, and `PathBuf::push` *replaces* the whole path when given
+/// one, so without it a single segment escapes `base`.
+fn relative_segments(relative: &str) -> impl Iterator<Item = &str> {
+    relative
+        .split(['/', '\\'])
+        .filter(|s| !s.is_empty() && *s != "." && *s != ".." && !s.contains(':'))
 }
 
 /// Removes files the previous pack version installed that this one didn't.
@@ -133,6 +149,26 @@ mod tests {
         // Traversal segments are dropped rather than honored.
         assert_eq!(join_relative(base, "../../etc/passwd"), base.join("etc").join("passwd"));
         assert_eq!(join_relative(base, "./mods/./a.jar"), base.join("mods").join("a.jar"));
+        // A drive-relative segment would make `push` discard `base` on Windows.
+        assert_eq!(join_relative(base, "C:evil/a.jar"), base.join("a.jar"));
+        assert_eq!(join_relative(base, "C:/Windows/a.jar"), base.join("Windows").join("a.jar"));
+    }
+
+    /// Windows resolves every one of these to the protected file, so a pack
+    /// must not be able to reach it by spelling the name differently.
+    #[test]
+    fn protection_survives_alternate_spellings() {
+        for path in [
+            "./ops.json",
+            "OPS.JSON",
+            "ops.json.",
+            "ops.json ",
+            ".\\ops.json",
+            "World/level.dat",
+            "./world/region/r.0.0.mca",
+        ] {
+            assert!(is_protected_path(path, "world"), "should protect: {path:?}");
+        }
     }
 }
 

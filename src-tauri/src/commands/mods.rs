@@ -10,8 +10,19 @@ use crate::AppState;
 /// Rejects a mod filename containing anything that could escape the mods
 /// folder - the frontend only ever sends back names this command's own
 /// `list_mods` produced, but this is what actually enforces that.
+///
+/// `:` is rejected too: on Windows a drive-relative name like `C:x.jar`
+/// makes `Path::join` discard the mods folder entirely, and `x.jar:stream`
+/// names an alternate data stream. Requiring the extensions `list_mods`
+/// shows keeps these commands from renaming or deleting anything else
+/// that happens to sit in `mods/`.
 fn validate_mod_file_name(name: &str) -> Result<(), String> {
-    let safe = !name.is_empty() && !name.contains('/') && !name.contains('\\') && !name.contains("..");
+    let safe = (name.ends_with(".jar") || name.ends_with(".jar.disabled"))
+        && !name.contains('/')
+        && !name.contains('\\')
+        && !name.contains(':')
+        && !name.contains("..")
+        && !name.chars().any(char::is_control);
     if safe {
         Ok(())
     } else {
@@ -162,4 +173,27 @@ pub async fn analyze_modpack_health(
     })
     .await
     .map_err(|e| format!("Modpack scan failed: {e}"))?
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mod_names_must_be_plain_jar_files() {
+        assert!(validate_mod_file_name("sodium-0.5.jar").is_ok());
+        assert!(validate_mod_file_name("sodium-0.5.jar.disabled").is_ok());
+        for name in [
+            "",
+            "../evil.jar",
+            "sub/evil.jar",
+            "sub\\evil.jar",
+            // Drive-relative: no separator, but `Path::join` drops the base.
+            "C:evil.jar",
+            "mod.jar:stream",
+            "server.properties",
+        ] {
+            assert!(validate_mod_file_name(name).is_err(), "should reject: {name:?}");
+        }
+    }
 }
