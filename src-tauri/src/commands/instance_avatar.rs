@@ -110,7 +110,38 @@ pub async fn set_instance_avatar(
         .await
         .map_err(|e| format!("Failed to read image file: {e}"))?;
 
+    // The extension is only a name. Checking the content keeps this from
+    // copying an arbitrary file into the instance and handing it back to
+    // the webview through `read_instance_avatar`.
+    if !is_image(&bytes) {
+        return Err("That file isn't a PNG, JPG, WEBP, or GIF image".to_string());
+    }
+
     write_avatar(&instance.server_directory, &ext, &bytes).await
+}
+
+/// Whether `bytes` start with the signature of one of the allowed formats.
+fn is_image(bytes: &[u8]) -> bool {
+    bytes.starts_with(&[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A])
+        || bytes.starts_with(&[0xFF, 0xD8, 0xFF])
+        || bytes.starts_with(b"GIF87a")
+        || bytes.starts_with(b"GIF89a")
+        || (bytes.len() >= 12 && &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"WEBP")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn recognizes_real_images_only() {
+        assert!(is_image(PRESETS[0].bytes));
+        assert!(is_image(b"GIF89a...."));
+        assert!(is_image(b"RIFF\0\0\0\0WEBPVP8 "));
+        assert!(is_image(&[0xFF, 0xD8, 0xFF, 0xE0]));
+        assert!(!is_image(b"[{\"uuid\":\"...\"}]"));
+        assert!(!is_image(b""));
+    }
 }
 
 /// Lists the built-in profile picture presets, thumbnails included - small

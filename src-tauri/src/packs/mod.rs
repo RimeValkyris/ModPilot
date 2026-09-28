@@ -101,10 +101,17 @@ pub fn join_relative(base: &Path, relative: &str) -> PathBuf {
 /// the Windows-specific one: a drive-relative segment like `C:evil` carries
 /// a path prefix, and `PathBuf::push` *replaces* the whole path when given
 /// one, so without it a single segment escapes `base`.
+///
+/// Also drops segments made only of dots and spaces (Windows strips those
+/// trailing characters, so `.. ` would act as `..`), control characters, and
+/// Windows device names like `nul.jar`, which name a device, not a file.
 fn relative_segments(relative: &str) -> impl Iterator<Item = &str> {
-    relative
-        .split(['/', '\\'])
-        .filter(|s| !s.is_empty() && *s != "." && *s != ".." && !s.contains(':'))
+    relative.split(['/', '\\']).filter(|s| {
+        !s.trim_end_matches(['.', ' ']).is_empty()
+            && !s.contains(':')
+            && !s.chars().any(char::is_control)
+            && !crate::filesystem::is_reserved_windows_name(s)
+    })
 }
 
 /// Removes files the previous pack version installed that this one didn't.
@@ -152,6 +159,11 @@ mod tests {
         // A drive-relative segment would make `push` discard `base` on Windows.
         assert_eq!(join_relative(base, "C:evil/a.jar"), base.join("a.jar"));
         assert_eq!(join_relative(base, "C:/Windows/a.jar"), base.join("Windows").join("a.jar"));
+        // Windows would resolve these as `..` / `.` once trailing dots and
+        // spaces are stripped.
+        assert_eq!(join_relative(base, ".. /.. /a.jar"), base.join("a.jar"));
+        assert_eq!(join_relative(base, "mods/.../a.jar"), base.join("mods").join("a.jar"));
+        assert_eq!(join_relative(base, "mods/nul.jar"), base.join("mods"));
     }
 
     /// Windows resolves every one of these to the protected file, so a pack

@@ -20,11 +20,21 @@ fn safe_join(dest_root: &Path, entry_name: &str) -> Option<PathBuf> {
         if part.is_empty() || part == "." {
             continue;
         }
-        if part == ".." {
+        // Windows strips trailing dots and spaces from every segment, so
+        // `.. ` or `...` can resolve as a parent or current directory there
+        // even though neither equals "..". Anything that is only dots and
+        // spaces is refused.
+        if part.trim_end_matches(['.', ' ']).is_empty() {
             return None;
         }
-        // Reject a smuggled drive letter or UNC-looking segment (e.g. "C:").
-        if part.contains(':') {
+        // Reject a smuggled drive letter or UNC-looking segment (e.g. "C:"),
+        // an alternate data stream (`file:stream`), control characters, and
+        // Windows device names - writing to `nul.txt` or `CON` talks to a
+        // device instead of creating a file.
+        if part.contains(':')
+            || part.chars().any(char::is_control)
+            || crate::filesystem::is_reserved_windows_name(part)
+        {
             return None;
         }
         out.push(part);
@@ -383,6 +393,12 @@ mod tests {
         assert!(safe_join(root, "../../etc/passwd").is_none());
         assert!(safe_join(root, "region/../../../x").is_none());
         assert!(safe_join(root, "C:/windows/system32").is_none());
+        // Resolved as ".." or "." by Windows once trailing dots/spaces go.
+        assert!(safe_join(root, ".. /x").is_none());
+        assert!(safe_join(root, "a/.../x").is_none());
+        assert!(safe_join(root, "mods/nul.jar").is_none());
+        assert!(safe_join(root, "file.txt:stream").is_none());
+        assert_eq!(safe_join(root, "./config/a.toml"), Some(root.join("config").join("a.toml")));
         assert_eq!(
             safe_join(root, "region/r.0.0.mca"),
             Some(root.join("region").join("r.0.0.mca"))

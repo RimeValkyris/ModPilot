@@ -268,7 +268,8 @@ pub async fn read_server_port(instance_dir: &Path) -> u16 {
     const DEFAULT_PORT: u16 = 25565;
 
     let path = instance_dir.join("server").join("server.properties");
-    let Ok(contents) = tokio::fs::read_to_string(&path).await else {
+    let Ok(Some((contents, _))) = crate::commands::server_properties::read_properties_file(&path).await
+    else {
         return DEFAULT_PORT;
     };
 

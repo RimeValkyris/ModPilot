@@ -115,9 +115,7 @@ pub async fn import_ftb_instance(
         if !overwrite {
             return Err(format!("{INSTANCE_EXISTS_PREFIX}{dir_name}"));
         }
-        tokio::fs::remove_dir_all(&instance_dir)
-            .await
-            .map_err(|e| format!("Failed to remove existing instance folder: {e}"))?;
+        super::import::replace_existing_instance_dir(&state, &instance_dir).await?;
     }
 
     let server_dir = instance_dir.join("server");

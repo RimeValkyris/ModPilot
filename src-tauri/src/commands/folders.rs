@@ -132,7 +132,8 @@ pub async fn get_instance_subfolder(
 pub(crate) async fn detect_world_folder_name(server_dir: &std::path::Path) -> String {
     const DEFAULT: &str = "world";
 
-    let Ok(contents) = tokio::fs::read_to_string(server_dir.join("server.properties")).await
+    let Ok(Some((contents, _))) =
+        super::server_properties::read_properties_file(&server_dir.join("server.properties")).await
     else {
         return DEFAULT.to_string();
     };

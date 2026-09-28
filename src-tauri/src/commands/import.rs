@@ -63,9 +63,7 @@ pub async fn import_instance(
             // Never overwrite without the user explicitly confirming first.
             return Err(format!("{INSTANCE_EXISTS_PREFIX}{dir_name}"));
         }
-        tokio::fs::remove_dir_all(&instance_dir)
-            .await
-            .map_err(|e| format!("Failed to remove existing instance folder: {e}"))?;
+        replace_existing_instance_dir(&state, &instance_dir).await?;
     }
 
     let server_dir = instance_dir.join("server");
@@ -189,6 +187,66 @@ pub async fn import_instance(
     }
 
     Ok(instance)
+}
+
+/// Clears an instance folder that an import has been confirmed to replace.
+///
+/// The folder usually belongs to a registered instance, so deleting only
+/// the files is not enough: that instance's row would survive, pointing at
+/// the *new* pack's files - two cards on one folder, where deleting the
+/// stale one deletes the new server with it. Its row goes too, the same
+/// way `delete_instance` removes one.
+///
+/// Refuses while that instance is running: its files are open, so on
+/// Windows the delete fails partway and leaves both servers half-there.
+pub(crate) async fn replace_existing_instance_dir(
+    state: &State<'_, AppState>,
+    instance_dir: &Path,
+) -> Result<(), String> {
+    let rows: Vec<(String, String)> = sqlx::query_as("SELECT id, server_directory FROM instances")
+        .fetch_all(&state.db)
+        .await
+        .map_err(|e| format!("Failed to load instances: {e}"))?;
+    let owners: Vec<String> = rows
+        .into_iter()
+        .filter(|(_, dir)| same_path(Path::new(dir), instance_dir))
+        .map(|(id, _)| id)
+        .collect();
+
+    for id in &owners {
+        if state.processes.is_running(id).await {
+            return Err("The instance you're replacing is running. Stop it first.".to_string());
+        }
+    }
+
+    tokio::fs::remove_dir_all(instance_dir)
+        .await
+        .map_err(|e| format!("Failed to remove existing instance folder: {e}"))?;
+
+    for id in owners {
+        sqlx::query("DELETE FROM instances WHERE id = ?")
+            .bind(&id)
+            .execute(&state.db)
+            .await
+            .map_err(|e| format!("Removed the old files, but couldn't remove the old instance: {e}"))?;
+        tracing::info!("Instance {id} was replaced by an import into the same folder");
+    }
+    Ok(())
+}
+
+/// Path equality as the filesystem sees it: separator-insensitive, and
+/// case-insensitive on Windows, where `My Pack` and `my pack` are one folder.
+fn same_path(a: &Path, b: &Path) -> bool {
+    let normalize = |p: &Path| {
+        let s = p.to_string_lossy().replace('\\', "/");
+        let s = s.trim_end_matches('/').to_string();
+        if cfg!(windows) {
+            s.to_lowercase()
+        } else {
+            s
+        }
+    };
+    normalize(a) == normalize(b)
 }
 
 /// Assigns a matching Java installation during import when the pack's
@@ -377,6 +435,18 @@ async fn copy_source_into(source: ImportSource, dest: PathBuf) -> Result<(), Str
             let path = Path::new(&path);
             if !path.is_dir() {
                 return Err("Selected path is not a folder".to_string());
+            }
+            // Copying a folder into somewhere inside itself (picking the
+            // instances folder, or an instance's own folder when updating it)
+            // walks into its own output and copies until the disk is full.
+            if let (Ok(src), Ok(dst)) = (path.canonicalize(), dest.canonicalize()) {
+                if dst.starts_with(&src) {
+                    return Err(
+                        "That folder contains ModpackPilot's own instance folder, so it can't be \
+                         imported from. Pick the server's folder itself."
+                            .to_string(),
+                    );
+                }
             }
             importer::copy_dir_recursive(path, &dest).map_err(|e| format!("Failed to copy server files: {e}"))
         }

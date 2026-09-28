@@ -38,7 +38,7 @@ pub struct InstalledLoader {
 
 fn client() -> reqwest::Client {
     reqwest::Client::builder()
-        .user_agent("ModpackPilot/0.1.0 (+https://github.com/RimeValkyris/ModPilot)")
+        .user_agent(concat!("ModpackPilot/", env!("CARGO_PKG_VERSION"), " (+https://github.com/RimeValkyris/ModPilot)"))
         .build()
         .expect("static reqwest client config is always valid")
 }
@@ -226,7 +226,7 @@ pub async fn run_installer_jar_reporting(
         if combined.contains("PKIX") || combined.contains("unable to find valid certification path")
         {
             return Err(
-                "The loader installer couldn't verify the HTTPS connections it needs to download                  Minecraft's libraries. This is usually antivirus TLS inspection or a corporate                  proxy intercepting the connection with its own certificate. Allow-list                  maven.neoforged.net and maven.minecraftforge.net in that software, or install                  the loader manually, then try again."
+                "The loader installer couldn't verify the HTTPS connections it needs to download Minecraft's libraries. This is usually antivirus TLS inspection or a corporate proxy intercepting the connection with its own certificate. Allow-list maven.neoforged.net and maven.minecraftforge.net in that software, or install the loader manually, then try again."
                     .to_string(),
             );
         }

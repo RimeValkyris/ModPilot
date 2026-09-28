@@ -12,8 +12,17 @@ pub async fn get_app_setting(state: State<'_, AppState>, key: String) -> Result<
     get_setting(&state.db, &key).await
 }
 
+/// Keys that have their own command, which validates them. Written through
+/// the generic setter, `instances_dir` would skip `set_instances_dir`'s
+/// writability probe and move - and the next launch would point every new
+/// instance at a folder nobody checked.
+const RESERVED_KEYS: &[&str] = &["instances_dir"];
+
 #[tauri::command]
 pub async fn set_app_setting(state: State<'_, AppState>, key: String, value: String) -> Result<(), String> {
+    if RESERVED_KEYS.contains(&key.as_str()) {
+        return Err(format!("\"{key}\" can't be changed through the generic settings command"));
+    }
     set_setting(&state.db, &key, &value).await
 }
 
@@ -84,6 +93,11 @@ pub async fn set_instances_dir(
     move_existing: bool,
 ) -> Result<(), String> {
     let new_path = std::path::Path::new(&new_dir);
+    // A relative path would resolve against whatever the working directory
+    // happens to be at each launch, which is not a stable home for servers.
+    if !new_path.is_absolute() {
+        return Err("Choose a full folder path for the instances folder.".to_string());
+    }
     tokio::fs::create_dir_all(new_path)
         .await
         .map_err(|e| format!("Failed to create directory: {e}"))?;
@@ -183,7 +197,29 @@ async fn repoint_instance_directories(
 /// Moves every top-level entry from `src` into `dest`. Tries a plain rename
 /// first (instant, same-drive); falls back to copy-then-delete for a move
 /// across drives, which `fs::rename` can't do on Windows.
+///
+/// Refuses before moving anything if `dest` already holds an entry with the
+/// same name as one being moved. The copy fallback would otherwise merge an
+/// instance into an unrelated folder of the same name, overwriting its files
+/// (world included) and then deleting the source.
 fn move_directory_contents(src: &std::path::Path, dest: &std::path::Path) -> std::io::Result<()> {
+    let mut collisions: Vec<String> = std::fs::read_dir(src)?
+        .filter_map(Result::ok)
+        .filter(|entry| dest.join(entry.file_name()).exists())
+        .map(|entry| entry.file_name().to_string_lossy().to_string())
+        .collect();
+    if !collisions.is_empty() {
+        collisions.sort();
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::AlreadyExists,
+            format!(
+                "the new folder already contains {} - nothing was moved. Pick an empty folder, \
+                 or move or rename those first",
+                collisions.join(", ")
+            ),
+        ));
+    }
+
     for entry in std::fs::read_dir(src)? {
         let entry = entry?;
         let target = dest.join(entry.file_name());

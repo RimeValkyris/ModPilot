@@ -376,7 +376,7 @@ pub async fn redetect_instance_launch(state: State<'_, AppState>, id: String) ->
 
     let launch_mode = detected.launch_mode().to_string();
     let server_jar = detected.server_jar.clone().ok_or_else(|| {
-        "Nothing launchable was found in this instance's server folder - no server JAR, no          Forge/NeoForge argfile, and no start script. Check the folder manually."
+        "Nothing launchable was found in this instance's server folder - no server JAR, no Forge/NeoForge argfile, and no start script. Check the folder manually."
             .to_string()
     })?;
 

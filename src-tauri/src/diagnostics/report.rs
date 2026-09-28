@@ -198,7 +198,7 @@ fn check_java(inputs: &DiagnosticInputs) -> Diagnostic {
                 LABEL,
                 DiagnosticStatus::NotApplicable,
                 "No Java selected, and no Minecraft version to infer one from",
-                "This instance has no recorded Minecraft version, so the launcher will fall                  back to whatever \"java\" is on your PATH. Setting the Minecraft version, or                  picking a Java on the Java page, removes the guesswork.",
+                "This instance has no recorded Minecraft version, so the launcher will fall back to whatever \"java\" is on your PATH. Setting the Minecraft version, or picking a Java on the Java page, removes the guesswork.",
             );
         };
 
@@ -213,7 +213,7 @@ fn check_java(inputs: &DiagnosticInputs) -> Diagnostic {
                 LABEL,
                 DiagnosticStatus::Ok,
                 format!("Java {required} will be selected automatically for Minecraft {mc}"),
-                "No Java is pinned to this instance, so the launcher picks the detected                  installation matching the Minecraft version. Pin one on the Java page if you                  want a specific build.",
+                "No Java is pinned to this instance, so the launcher picks the detected installation matching the Minecraft version. Pin one on the Java page if you want a specific build.",
             );
         }
 
@@ -229,11 +229,11 @@ fn check_java(inputs: &DiagnosticInputs) -> Diagnostic {
             format!("No Java {required} installation was detected"),
             if is_forge_family {
                 format!(
-                    "Minecraft {mc} needs Java {required}, and none is installed. ModpackPilot                      refuses to start Forge and NeoForge servers on the wrong major version,                      because that hangs partway through mod loading rather than failing                      cleanly. Install Java {required} and rescan on the Java page."
+                    "Minecraft {mc} needs Java {required}, and none is installed. ModpackPilot refuses to start Forge and NeoForge servers on the wrong major version, because that hangs partway through mod loading rather than failing cleanly. Install Java {required} and rescan on the Java page."
                 )
             } else {
                 format!(
-                    "Minecraft {mc} needs Java {required}, and none is installed. The server                      will be started with whatever \"java\" is on your PATH, which may be the                      wrong version. Install Java {required} and rescan on the Java page."
+                    "Minecraft {mc} needs Java {required}, and none is installed. The server will be started with whatever \"java\" is on your PATH, which may be the wrong version. Install Java {required} and rescan on the Java page."
                 )
             },
         );
@@ -245,7 +245,7 @@ fn check_java(inputs: &DiagnosticInputs) -> Diagnostic {
             LABEL,
             DiagnosticStatus::NotApplicable,
             format!("Using Java {assigned}"),
-            "This instance has no recorded Minecraft version, so the Java version it needs              can't be determined. The Java in use is shown for reference only.",
+            "This instance has no recorded Minecraft version, so the Java version it needs can't be determined. The Java in use is shown for reference only.",
         );
     };
 
@@ -256,7 +256,7 @@ fn check_java(inputs: &DiagnosticInputs) -> Diagnostic {
             DiagnosticStatus::NotApplicable,
             format!("Java version \"{assigned}\" could not be read"),
             format!(
-                "Minecraft {mc} needs Java {required}, but the selected installation's version                  string could not be parsed, so no comparison was made."
+                "Minecraft {mc} needs Java {required}, but the selected installation's version string could not be parsed, so no comparison was made."
             ),
         );
     };
@@ -278,7 +278,7 @@ fn check_java(inputs: &DiagnosticInputs) -> Diagnostic {
             DiagnosticStatus::Critical,
             format!("Java {actual} is too old for Minecraft {mc}"),
             format!(
-                "Minecraft {mc} requires Java {required}. The server will fail to start,                  usually with an \"UnsupportedClassVersionError\". Install Java {required}                  and select it for this instance."
+                "Minecraft {mc} requires Java {required}. The server will fail to start, usually with an \"UnsupportedClassVersionError\". Install Java {required} and select it for this instance."
             ),
         );
     }
@@ -291,7 +291,7 @@ fn check_java(inputs: &DiagnosticInputs) -> Diagnostic {
         DiagnosticStatus::Warning,
         format!("Java {actual} is newer than the Java {required} Minecraft {mc} targets"),
         format!(
-            "This often works, and many packs run fine on a newer Java. Some older mods and              mixins do not, and fail in ways that look unrelated. If this server misbehaves              without an obvious cause, try Java {required}."
+            "This often works, and many packs run fine on a newer Java. Some older mods and mixins do not, and fail in ways that look unrelated. If this server misbehaves without an obvious cause, try Java {required}."
         ),
     )
 }
@@ -565,7 +565,7 @@ fn check_logs(inputs: &DiagnosticInputs) -> Diagnostic {
             LABEL,
             DiagnosticStatus::NotApplicable,
             "No server log to read",
-            "This instance has no logs/latest.log yet, which means it has not been started              since it was set up. There is nothing to scan rather than nothing wrong.",
+            "This instance has no logs/latest.log yet, which means it has not been started since it was set up. There is nothing to scan rather than nothing wrong.",
         );
     };
 
@@ -686,7 +686,7 @@ fn check_crashes(inputs: &DiagnosticInputs) -> Diagnostic {
         })
         .count();
     let startup_note = if startup_crashes == recent_crashes.len() {
-        " Every one of them died within the first two minutes, so this is failing during           startup rather than under load - look at the modpack report, the Java version and           the first errors in the log, not at performance."
+        " Every one of them died within the first two minutes, so this is failing during startup rather than under load - look at the modpack report, the Java version and the first errors in the log, not at performance."
     } else {
         ""
     };

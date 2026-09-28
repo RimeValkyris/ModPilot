@@ -118,7 +118,16 @@ pub async fn create_world_backup(state: State<'_, AppState>, id: String) -> Resu
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_else(|| "world".to_string());
-    let file_name = format!("{world_name}-{}.zip", Utc::now().format("%Y%m%d-%H%M%S"));
+    // Two backups in the same second (a schedule firing as someone clicks
+    // "Create Backup") would share a name, and the second would overwrite
+    // the first - then delete it outright if it failed verification.
+    let stamp = Utc::now().format("%Y%m%d-%H%M%S");
+    let mut file_name = format!("{world_name}-{stamp}.zip");
+    let mut suffix = 2;
+    while backups_dir.join(&file_name).exists() {
+        file_name = format!("{world_name}-{stamp}-{suffix}.zip");
+        suffix += 1;
+    }
     let dest = backups_dir.join(&file_name);
 
     // A running server rewrites region files continuously, so zipping them
@@ -383,7 +392,7 @@ pub async fn restore_world_backup(
         let needed = contents.uncompressed_bytes.saturating_add(REQUIRED_FREE_MARGIN_BYTES);
         if free < needed {
             return Err(format!(
-                "Not enough free space on {} to restore safely: this backup expands to {:.1} GB                  and only {:.1} GB is free. The current world is kept alongside the restored one                  until you delete it, so a restore needs room for both.",
+                "Not enough free space on {} to restore safely: this backup expands to {:.1} GB and only {:.1} GB is free. The current world is kept alongside the restored one until you delete it, so a restore needs room for both.",
                 disk.mount_point,
                 contents.uncompressed_bytes as f64 / 1e9,
                 free as f64 / 1e9,
@@ -471,7 +480,9 @@ fn validate_pre_restore_name(name: &str) -> Result<(), String> {
         && name.contains(PRE_RESTORE_MARKER)
         && !name.contains('/')
         && !name.contains('\\')
-        && !name.contains("..");
+        && !name.contains(':')
+        && !name.contains("..")
+        && !name.chars().any(char::is_control);
     if safe {
         Ok(())
     } else {

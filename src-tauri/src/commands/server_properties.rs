@@ -60,6 +60,11 @@ fn normalize_editable_value(key: &str, value: &str) -> String {
 ///
 /// Minecraft has no way to express a literal newline here anyway (it uses
 /// a two-character backslash-n escape), so nothing legitimate is lost.
+///
+/// A trailing backslash is the same attack without a line break: Java's
+/// properties format treats an odd run of `\` at the end of a line as a
+/// continuation, so `motd=hi\` would swallow the *next* line of the file
+/// into the MOTD - silently dropping a `white-list=true` that followed it.
 fn validate_property_value(key: &str, value: &str) -> Result<String, String> {
     let trimmed = value.trim_end_matches(['\r', '\n']);
     if trimmed.contains('\n') || trimmed.contains('\r') {
@@ -67,7 +72,73 @@ fn validate_property_value(key: &str, value: &str) -> Result<String, String> {
             "\"{key}\" can't contain a line break - server.properties stores one setting per line."
         ));
     }
+    let trailing_backslashes = trimmed.chars().rev().take_while(|&c| c == '\\').count();
+    if trailing_backslashes % 2 == 1 {
+        return Err(format!(
+            "\"{key}\" can't end with a single backslash - server.properties would join it to the next line."
+        ));
+    }
     Ok(trimmed.to_string())
+}
+
+/// How a `server.properties` file was encoded on disk, so a rewrite can
+/// keep it that way.
+///
+/// Older Minecraft versions write the file as ISO-8859-1 (Java's
+/// `Properties.store` default), so a MOTD with a `§` color code is not valid
+/// UTF-8. Reading such a file as UTF-8 fails outright - which used to make
+/// the Configuration tab error, the world folder fall back to `world`, and a
+/// save replace the entire file with just the edited keys.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PropertiesEncoding {
+    Utf8,
+    Latin1,
+}
+
+/// Decodes `server.properties` bytes as UTF-8, falling back to ISO-8859-1 -
+/// which maps every byte to a char, so this never fails.
+pub(crate) fn decode_properties(bytes: &[u8]) -> (String, PropertiesEncoding) {
+    match std::str::from_utf8(bytes) {
+        Ok(text) => (text.to_string(), PropertiesEncoding::Utf8),
+        Err(_) => (
+            bytes.iter().map(|&b| char::from(b)).collect(),
+            PropertiesEncoding::Latin1,
+        ),
+    }
+}
+
+/// The inverse of [`decode_properties`]. A character ISO-8859-1 can't hold
+/// is written as a `\uXXXX` escape, which Java's properties reader decodes.
+fn encode_properties(text: &str, encoding: PropertiesEncoding) -> Vec<u8> {
+    match encoding {
+        PropertiesEncoding::Utf8 => text.as_bytes().to_vec(),
+        PropertiesEncoding::Latin1 => {
+            let mut out = Vec::with_capacity(text.len());
+            for c in text.chars() {
+                match u8::try_from(u32::from(c)) {
+                    Ok(byte) => out.push(byte),
+                    Err(_) => {
+                        for unit in c.encode_utf16(&mut [0; 2]) {
+                            out.extend_from_slice(format!("\\u{unit:04X}").as_bytes());
+                        }
+                    }
+                }
+            }
+            out
+        }
+    }
+}
+
+/// Reads and decodes a `server.properties` file. `Ok(None)` when it doesn't
+/// exist yet.
+pub(crate) async fn read_properties_file(
+    path: &Path,
+) -> std::io::Result<Option<(String, PropertiesEncoding)>> {
+    match tokio::fs::read(path).await {
+        Ok(bytes) => Ok(Some(decode_properties(&bytes))),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(e),
+    }
 }
 
 /// Reads just the editable keys' current values out of `server.properties`.
@@ -86,9 +157,9 @@ pub async fn read_server_properties(
         .join("server")
         .join("server.properties");
 
-    let contents = match tokio::fs::read_to_string(&path).await {
-        Ok(c) => c,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(HashMap::new()),
+    let contents = match read_properties_file(&path).await {
+        Ok(Some((text, _))) => text,
+        Ok(None) => return Ok(HashMap::new()),
         Err(e) => return Err(format!("Failed to read server.properties: {e}")),
     };
 
@@ -155,7 +226,13 @@ pub(crate) async fn merge_properties(
 ) -> Result<(), String> {
     let path = server_dir.join("server.properties");
 
-    let existing = tokio::fs::read_to_string(&path).await.unwrap_or_default();
+    // Only a missing file starts from empty. Any other read failure must
+    // stop the write: carrying on would replace every setting the file
+    // holds (port, seed, world name...) with just the handful being edited.
+    let (existing, encoding) = read_properties_file(&path)
+        .await
+        .map_err(|e| format!("Failed to read server.properties: {e}"))?
+        .unwrap_or((String::new(), PropertiesEncoding::Utf8));
     let mut remaining = updates;
     let mut lines: Vec<String> = Vec::new();
 
@@ -182,7 +259,7 @@ pub(crate) async fn merge_properties(
     if let Some(parent) = path.parent() {
         let _ = tokio::fs::create_dir_all(parent).await;
     }
-    tokio::fs::write(&path, lines.join("\n") + "\n")
+    tokio::fs::write(&path, encode_properties(&(lines.join("\n") + "\n"), encoding))
         .await
         .map_err(|e| format!("Failed to write server.properties: {e}"))
 }
@@ -221,5 +298,50 @@ mod tests {
         // A trailing newline from a paste is trimmed, not rejected.
         assert_eq!(validate_property_value("motd", "Hello\n").unwrap(), "Hello");
         assert_eq!(validate_property_value("motd", "Hello").unwrap(), "Hello");
+    }
+
+    #[test]
+    fn rejects_a_trailing_backslash_that_would_swallow_the_next_line() {
+        assert!(validate_property_value("motd", "Hi\\").is_err());
+        assert!(validate_property_value("motd", "Hi\\\\\\").is_err());
+        // An escaped backslash is a literal one, not a continuation.
+        assert!(validate_property_value("motd", "Hi\\\\").is_ok());
+        assert!(validate_property_value("motd", "\\u00A7aGreen").is_ok());
+    }
+
+    #[test]
+    fn latin1_files_round_trip_byte_for_byte() {
+        // `§` as the single ISO-8859-1 byte 0xA7, as older servers write it.
+        let original = b"motd=\xA7aHello\nlevel-name=Welt\n";
+        let (text, encoding) = decode_properties(original);
+        assert_eq!(encoding, PropertiesEncoding::Latin1);
+        assert!(text.contains("level-name=Welt"));
+        assert_eq!(encode_properties(&text, encoding), original);
+        // A char outside Latin-1 becomes an escape Java reads back.
+        assert_eq!(encode_properties("a\u{2603}", encoding), b"a\\u2603");
+    }
+
+    /// The data-loss bug: a non-UTF-8 file used to read as empty, so saving
+    /// one setting wiped every other line.
+    #[tokio::test]
+    async fn merging_into_a_latin1_file_keeps_every_other_setting() {
+        let dir = std::env::temp_dir().join(format!("mpp-props-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("server.properties"),
+            b"motd=\xA7aHello\nserver-port=25570\nlevel-name=survival\n",
+        )
+        .unwrap();
+
+        merge_properties(&dir, HashMap::from([("pvp".to_string(), "false".to_string())]))
+            .await
+            .unwrap();
+
+        let written = std::fs::read(dir.join("server.properties")).unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(
+            written,
+            b"motd=\xA7aHello\nserver-port=25570\nlevel-name=survival\npvp=false\n"
+        );
     }
 }

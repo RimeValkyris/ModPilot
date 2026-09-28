@@ -267,7 +267,7 @@ pub fn analyze(
             severity: Severity::Critical,
             summary: format!("{} is a {} mod", m.best_name(), loader.label()),
             detail: format!(
-                "This server runs {instance_loader}, but {} declares itself as a {} mod. It will                  not load, and on {instance_loader} it may stop the server starting.",
+                "This server runs {instance_loader}, but {} declares itself as a {} mod. It will not load, and on {instance_loader} it may stop the server starting.",
                 m.file_name,
                 loader.label()
             ),
@@ -287,7 +287,7 @@ pub fn analyze(
             (true, false) => CheckStatus::Critical,
         },
         note: (!loader_known).then(|| {
-            "This instance's mod loader hasn't been detected, so per-JAR loader compatibility              could not be checked. Setting it in the instance's settings enables this check."
+            "This instance's mod loader hasn't been detected, so per-JAR loader compatibility could not be checked. Setting it in the instance's settings enables this check."
                 .to_string()
         }),
     });

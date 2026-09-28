@@ -277,6 +277,281 @@
     --sidebar-ring: #88c0d0;
 }
 
+/* ---------------------------------------------------------------------------
+   Soft (neumorphic) theme - the Soft Light and Soft Dark themes.
+
+   Neumorphism with a minimalist hand:
+     1. One surface color. Page, sidebar, cards and inputs all share
+        --background; depth comes only from paired shadows - a highlight
+        up-left, a shade down-right - never from borders or fills.
+     2. Two directions only. Things you act on or read as a unit are
+        *raised* (cards, buttons, dialogs); things that hold a value or show
+        the current place are *pressed in* (inputs, tab rails, the active
+        nav item, a button mid-click).
+     3. Restraint. No borders, one accent, generous radius, and text kept at
+        full contrast - low-contrast text is where neumorphism usually fails
+        accessibility, so it is the one thing this theme never softens.
+
+   Like the Minecraft theme, the rules are unlayered so they beat Tailwind's
+   utility layer, and they target `data-slot` hooks rather than restyling
+   each component.
+--------------------------------------------------------------------------- */
+.theme-neu:not(.dark) {
+    --radius: 0.9rem;
+
+    --background: oklch(0.93 0.008 255);
+    --foreground: oklch(0.24 0.015 260);
+    --card: var(--background);
+    --card-foreground: var(--foreground);
+    --popover: var(--background);
+    --popover-foreground: var(--foreground);
+    --primary: oklch(0.6 0.13 162);
+    --primary-foreground: oklch(0.99 0.01 162);
+    --secondary: oklch(0.9 0.009 255);
+    --secondary-foreground: var(--foreground);
+    --muted: oklch(0.9 0.009 255);
+    --muted-foreground: oklch(0.46 0.015 260);
+    --accent: oklch(0.9 0.035 162);
+    --accent-foreground: oklch(0.33 0.08 162);
+    --destructive: oklch(0.56 0.2 25);
+    --border: oklch(0.85 0.01 255);
+    --input: oklch(0.85 0.01 255);
+    --ring: oklch(0.6 0.13 162);
+    --sidebar: var(--background);
+    --sidebar-foreground: var(--foreground);
+    --sidebar-primary: var(--primary);
+    --sidebar-primary-foreground: var(--primary-foreground);
+    --sidebar-accent: var(--background);
+    --sidebar-accent-foreground: var(--foreground);
+    --sidebar-border: transparent;
+    --sidebar-ring: var(--ring);
+
+    --neu-hi: oklch(1 0 0 / 0.9);
+    --neu-lo: oklch(0.55 0.03 260 / 0.32);
+}
+
+.theme-neu.dark {
+    --radius: 0.9rem;
+
+    --background: oklch(0.255 0.008 260);
+    --foreground: oklch(0.95 0.004 260);
+    --card: var(--background);
+    --card-foreground: var(--foreground);
+    --popover: var(--background);
+    --popover-foreground: var(--foreground);
+    --primary: oklch(0.76 0.13 162);
+    --primary-foreground: oklch(0.2 0.03 162);
+    --secondary: oklch(0.28 0.008 260);
+    --secondary-foreground: var(--foreground);
+    --muted: oklch(0.28 0.008 260);
+    --muted-foreground: oklch(0.72 0.01 260);
+    --accent: oklch(0.3 0.04 162);
+    --accent-foreground: oklch(0.88 0.08 162);
+    --destructive: oklch(0.7 0.18 22);
+    --border: oklch(1 0 0 / 7%);
+    --input: oklch(1 0 0 / 9%);
+    --ring: oklch(0.76 0.13 162);
+    --sidebar: var(--background);
+    --sidebar-foreground: var(--foreground);
+    --sidebar-primary: var(--primary);
+    --sidebar-primary-foreground: var(--primary-foreground);
+    --sidebar-accent: var(--background);
+    --sidebar-accent-foreground: var(--foreground);
+    --sidebar-border: transparent;
+    --sidebar-ring: var(--ring);
+
+    --neu-hi: oklch(1 0 0 / 0.075);
+    --neu-lo: oklch(0 0 0 / 0.5);
+}
+
+.theme-neu {
+    --neu-raised: 6px 6px 14px var(--neu-lo), -6px -6px 14px var(--neu-hi);
+    --neu-raised-sm: 3px 3px 7px var(--neu-lo), -3px -3px 7px var(--neu-hi);
+    --neu-float: 14px 14px 32px var(--neu-lo), -10px -10px 28px var(--neu-hi);
+    --neu-inset: inset 3px 3px 7px var(--neu-lo), inset -3px -3px 7px var(--neu-hi);
+    --neu-inset-sm: inset 2px 2px 4px var(--neu-lo), inset -2px -2px 4px var(--neu-hi);
+    --neu-focus: 0 0 0 2px color-mix(in oklch, var(--ring) 55%, transparent);
+}
+
+/* Layout: one continuous surface - no divider between sidebar and page. */
+.theme-neu [data-slot="app-main"] {
+    background-color: var(--background);
+    border-color: transparent;
+}
+.theme-neu [data-slot="app-logo"] {
+    box-shadow: var(--neu-raised-sm);
+}
+.theme-neu [data-slot="nav-indicator"] {
+    display: none;
+}
+.theme-neu [data-slot="nav-item"]:hover {
+    background-color: transparent;
+    box-shadow: var(--neu-raised-sm);
+}
+.theme-neu [data-slot="nav-item"][aria-current="page"] {
+    background-color: transparent;
+    color: var(--primary);
+    box-shadow: var(--neu-inset-sm);
+}
+
+/* Raised surfaces: cards, and the hand-built panels that play the same
+   role (`rounded-xl border bg-card` is the app's panel idiom). Dashed
+   empty-state boxes keep their outline - they are placeholders, not
+   objects. */
+.theme-neu [data-slot="card"],
+.theme-neu :is(.rounded-xl, .rounded-2xl).border.bg-card:not(.border-dashed) {
+    border-color: transparent;
+    box-shadow: var(--neu-raised);
+}
+
+/* List rows inside a panel sit a step lower: a shallow well... */
+.theme-neu .rounded-lg.border.border-border:not(img, button, .border-dashed) {
+    border-color: transparent;
+    box-shadow: var(--neu-inset-sm);
+}
+/* ...unless they are their own card-like object. */
+.theme-neu .rounded-lg.border.bg-card:not(.border-dashed) {
+    border-color: transparent;
+    box-shadow: var(--neu-raised-sm);
+}
+/* Selectable list rows (pack pickers) behave like buttons. */
+.theme-neu button.rounded-lg.border.border-border {
+    border-color: transparent;
+    background-color: var(--background);
+    box-shadow: var(--neu-raised-sm);
+    transition: box-shadow 150ms ease;
+}
+.theme-neu button.rounded-lg.border.border-border:hover:not(:disabled) {
+    box-shadow: var(--neu-raised);
+}
+.theme-neu button.rounded-lg.border.border-border:active:not(:disabled) {
+    box-shadow: var(--neu-inset-sm);
+}
+.theme-neu .border-dashed {
+    border-color: color-mix(in oklch, var(--muted-foreground) 35%, transparent);
+    background-color: transparent;
+}
+
+/* Buttons: raised at rest, lifted on hover, pressed in while held or open.
+   Ghost and link buttons stay flat - minimal chrome for minor actions. */
+.theme-neu [data-slot="button"]:is(
+        [data-variant="default"],
+        [data-variant="outline"],
+        [data-variant="secondary"],
+        [data-variant="destructive"]
+    ) {
+    border-color: transparent;
+    box-shadow: var(--neu-raised-sm);
+    transition:
+        box-shadow 150ms ease,
+        background-color 150ms ease,
+        color 150ms ease;
+}
+.theme-neu [data-slot="button"]:is([data-variant="outline"], [data-variant="secondary"]) {
+    background-color: var(--background);
+}
+.theme-neu [data-slot="button"]:is([data-variant="outline"], [data-variant="secondary"]):hover {
+    color: var(--primary);
+}
+.theme-neu [data-slot="button"]:is(
+        [data-variant="default"],
+        [data-variant="outline"],
+        [data-variant="secondary"],
+        [data-variant="destructive"]
+    ):hover:not(:disabled) {
+    box-shadow: var(--neu-raised);
+}
+.theme-neu [data-slot="button"]:is(
+        [data-variant="default"],
+        [data-variant="outline"],
+        [data-variant="secondary"],
+        [data-variant="destructive"]
+    ):is(:active, [aria-expanded="true"]):not(:disabled) {
+    box-shadow: var(--neu-inset-sm);
+    translate: none;
+}
+.theme-neu [data-slot="button"][data-variant="ghost"]:hover {
+    background-color: transparent;
+    box-shadow: var(--neu-inset-sm);
+}
+.theme-neu [data-slot="button"]:focus-visible {
+    box-shadow: var(--neu-raised-sm), var(--neu-focus);
+}
+
+/* Fields are wells: pressed into the surface, never outlined. */
+.theme-neu :is([data-slot="input"], [data-slot="textarea"], [data-slot="select-trigger"]) {
+    border-color: transparent;
+    background-color: var(--background);
+    box-shadow: var(--neu-inset);
+}
+.theme-neu :is([data-slot="input"], [data-slot="textarea"], [data-slot="select-trigger"]):focus-visible {
+    box-shadow: var(--neu-inset), var(--neu-focus);
+}
+.theme-neu :is([data-slot="input"], [data-slot="textarea"], [data-slot="select-trigger"])[aria-invalid="true"] {
+    box-shadow:
+        var(--neu-inset),
+        0 0 0 2px color-mix(in oklch, var(--destructive) 55%, transparent);
+}
+
+/* Tabs: the rail is a groove, the selected tab sits raised inside it. */
+.theme-neu [data-slot="tabs-list"][data-variant="default"] {
+    background-color: var(--background);
+    box-shadow: var(--neu-inset-sm);
+    padding: 4px;
+    height: auto;
+}
+.theme-neu [data-slot="tabs-list"][data-variant="default"] [data-slot="tabs-trigger"] {
+    padding-block: 0.3rem;
+    padding-inline: 0.75rem;
+}
+.theme-neu [data-slot="tabs-list"][data-variant="default"] [data-slot="tabs-trigger"][data-active] {
+    border-color: transparent;
+    background-color: var(--background);
+    color: var(--primary);
+    box-shadow: var(--neu-raised-sm);
+}
+
+/* Switch: a groove with a raised knob. */
+.theme-neu [data-slot="switch"] {
+    box-shadow: var(--neu-inset-sm);
+}
+.theme-neu [data-slot="switch"][data-unchecked] {
+    background-color: color-mix(in oklch, var(--foreground) 8%, var(--background));
+}
+.theme-neu [data-slot="switch-thumb"] {
+    box-shadow: 1px 1px 3px var(--neu-lo), -1px -1px 2px var(--neu-hi);
+}
+.theme-neu:not(.dark) [data-slot="switch-thumb"] {
+    background-color: oklch(0.99 0.003 255);
+}
+/* Off must still read as a control in the dark: a light-grey knob, not one
+   the color of the page. */
+.theme-neu.dark [data-slot="switch-thumb"][data-unchecked] {
+    background-color: var(--muted-foreground);
+}
+
+/* Floating surfaces lift further than anything in the page. */
+.theme-neu :is(
+        [data-slot="dialog-content"],
+        [data-slot="alert-dialog-content"],
+        [data-slot="select-content"],
+        [data-slot="dropdown-menu-content"],
+        [data-slot="dropdown-menu-sub-content"]
+    ) {
+    border-color: transparent;
+    box-shadow: var(--neu-float);
+}
+.theme-neu :is([data-slot="dialog-overlay"], [data-slot="alert-dialog-overlay"]) {
+    background-color: color-mix(in oklch, var(--background) 55%, transparent);
+    backdrop-filter: blur(3px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .theme-neu * {
+        transition-duration: 0ms !important;
+    }
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;

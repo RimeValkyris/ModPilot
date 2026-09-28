@@ -19,7 +19,7 @@ fn client() -> &'static reqwest::Client {
     static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
     CLIENT.get_or_init(|| {
         reqwest::Client::builder()
-            .user_agent("ModpackPilot/0.1.0 (+https://github.com/RimeValkyris/ModPilot)")
+            .user_agent(concat!("ModpackPilot/", env!("CARGO_PKG_VERSION"), " (+https://github.com/RimeValkyris/ModPilot)"))
             .build()
             .expect("static reqwest client config is always valid")
     })
