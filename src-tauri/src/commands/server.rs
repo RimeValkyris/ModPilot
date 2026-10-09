@@ -472,7 +472,7 @@ pub async fn install_paper_server(
     )
     .bind(&installed.server_jar)
     .bind(&installed.launch_mode)
-    .bind(instance.loader_version.as_deref())
+    .bind(installed.loader_version.as_deref())
     .bind(&id)
     .execute(&state.db)
     .await

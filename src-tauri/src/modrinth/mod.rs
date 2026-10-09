@@ -83,11 +83,7 @@ pub async fn download_plugin(
         .iter()
         .find(|file| file.filename == filename)
         .ok_or_else(|| "The selected plugin file is no longer available".to_string())?;
-    if !file.filename.ends_with(".jar")
-        || file.filename.contains('/')
-        || file.filename.contains('\\')
-        || file.filename.contains("..")
-    {
+    if !file.filename.ends_with(".jar") || !crate::filesystem::is_safe_jar_file_name(&file.filename) {
         return Err("Modrinth returned an unsafe plugin filename".to_string());
     }
     if !file.url.starts_with("https://") {
@@ -112,7 +108,11 @@ pub async fn download_plugin(
         .map_err(|e| format!("Failed to write plugin download: {e}"))?;
     tokio::fs::rename(&tmp, plugins_dir.join(&file.filename))
         .await
-        .map_err(|e| format!("Failed to install plugin: {e}"))
+        .map_err(|e| format!("Failed to install plugin: {e}"))?;
+    // Installing replaces a switched-off copy of the same plugin rather than
+    // leaving both jars behind.
+    let _ = tokio::fs::remove_file(plugins_dir.join(format!("{}.disabled", file.filename))).await;
+    Ok(())
 }
 
 /// Turns a Modrinth 404 into a message that actually explains what to do

@@ -57,10 +57,10 @@ pub struct ModrinthVersion {
     pub loaders: Vec<String>,
     #[serde(default)]
     pub game_versions: Vec<String>,
-    // Not sent to the frontend - it only needs to know a version exists
-    // and show its changelog; `apply_update` reads this directly off a
-    // freshly-fetched `ModrinthVersion` on the Rust side instead.
-    #[serde(skip)]
+    // `serde(skip)` would also skip *deserializing*, leaving this empty for
+    // every version fetched from Modrinth. The frontend needs it too, to
+    // pick a plugin jar to install.
+    #[serde(default)]
     pub files: Vec<ModrinthVersionFile>,
 }
 

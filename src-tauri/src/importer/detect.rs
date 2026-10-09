@@ -424,8 +424,12 @@ fn detect_loader_and_version(
         }
     } else if any_path_contains("quilt") {
         info.loader = ServerLoader::Quilt;
-    } else if any_path_contains("paper")
-        || root_jars.iter().any(|jar| jar.to_ascii_lowercase().contains("paper"))
+    } else if lower_paths.iter().any(|p| {
+        matches!(
+            p.as_str(),
+            "paper.yml" | "config/paper-global.yml" | "config/paper-world-defaults.yml"
+        )
+    }) || root_jars.iter().any(|jar| jar.to_ascii_lowercase().contains("paper"))
     {
         info.loader = ServerLoader::Paper;
         let re = Regex::new(r"paper-([\d.]+)-(\d+)\.jar").unwrap();

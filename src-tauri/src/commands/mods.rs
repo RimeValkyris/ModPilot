@@ -17,13 +17,7 @@ use crate::AppState;
 /// shows keeps these commands from renaming or deleting anything else
 /// that happens to sit in `mods/`.
 fn validate_mod_file_name(name: &str) -> Result<(), String> {
-    let safe = (name.ends_with(".jar") || name.ends_with(".jar.disabled"))
-        && !name.contains('/')
-        && !name.contains('\\')
-        && !name.contains(':')
-        && !name.contains("..")
-        && !name.chars().any(char::is_control);
-    if safe {
+    if crate::filesystem::is_safe_jar_file_name(name) {
         Ok(())
     } else {
         Err("Invalid mod file name".to_string())

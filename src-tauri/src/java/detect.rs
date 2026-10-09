@@ -125,6 +125,12 @@ fn registry_java_homes() -> Vec<PathBuf> {
 /// Runs Java's diagnostic properties and parses its output. The banner format
 /// varies between vendors; these properties are more stable and also expose
 /// vendor and architecture directly.
+/// Probes one specific `java` executable, for installs that live outside
+/// every location `detect_java_installations` scans (e.g. the managed JDKs).
+pub fn probe_java(java_path: &Path) -> Option<DetectedJava> {
+    probe(&std::fs::canonicalize(java_path).unwrap_or_else(|_| java_path.to_path_buf()))
+}
+
 fn probe(java_path: &Path) -> Option<DetectedJava> {
     let output = Command::new(java_path)
         .args(["-XshowSettings:properties", "-version"])

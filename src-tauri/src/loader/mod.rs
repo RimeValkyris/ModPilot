@@ -36,24 +36,25 @@ pub struct InstalledLoader {
     pub server_jar: String,
     /// `"jar"`, `"argfile"`, or `"script"` - see `Instance::launch_mode`.
     pub launch_mode: String,
+    /// The exact build the install resolved to, when the loader has one
+    /// worth recording (Paper's "latest" becomes a concrete build number).
+    pub loader_version: Option<String>,
 }
 
 #[derive(Debug, serde::Deserialize)]
 struct PaperBuild {
-    build: u32,
-    downloads: PaperDownloads,
+    id: u32,
+    downloads: std::collections::HashMap<String, PaperDownload>,
 }
 
 #[derive(Debug, serde::Deserialize)]
-struct PaperDownloads {
-    application: PaperApplication,
-}
-
-#[derive(Debug, serde::Deserialize)]
-struct PaperApplication {
-    #[allow(dead_code)]
-    name: String,
+struct PaperDownload {
     url: String,
+    checksums: PaperChecksums,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct PaperChecksums {
     sha256: String,
 }
 
@@ -318,6 +319,7 @@ pub async fn detect_installed(server_dir: &Path) -> Result<InstalledLoader, Stri
     Ok(InstalledLoader {
         server_jar,
         launch_mode,
+        loader_version: None,
     })
 }
 
@@ -373,6 +375,7 @@ pub async fn install(
             Ok(InstalledLoader {
                 server_jar: jar_name.to_string(),
                 launch_mode: "jar".to_string(),
+                loader_version: None,
             })
         }
         ServerLoader::Paper => {
@@ -397,9 +400,16 @@ pub async fn install(
                 .json()
                 .await
                 .map_err(|e| format!("Failed to parse PaperMC's response: {e}"))?;
-            let expected = metadata.downloads.application.sha256.to_lowercase();
+            let download = metadata
+                .downloads
+                .get("server:default")
+                .ok_or_else(|| format!("PaperMC has no server download for Minecraft {mc}"))?;
+            if !download.url.starts_with("https://") {
+                return Err("Refusing to download Paper over an insecure link".to_string());
+            }
+            let expected = download.checksums.sha256.to_lowercase();
             let bytes = client()
-                .get(&metadata.downloads.application.url)
+                .get(&download.url)
                 .send()
                 .await
                 .map_err(|e| format!("Failed to download Paper: {e}"))?
@@ -414,13 +424,17 @@ pub async fn install(
                     "Paper download failed its SHA-256 checksum (expected {expected}, got {actual})"
                 ));
             }
-            let jar_name = format!("paper-{mc}-{}.jar", metadata.build);
+            let jar_name = format!("paper-{mc}-{}.jar", metadata.id);
+            tokio::fs::create_dir_all(server_dir)
+                .await
+                .map_err(|e| format!("Failed to create the server folder: {e}"))?;
             tokio::fs::write(server_dir.join(&jar_name), &bytes)
                 .await
                 .map_err(|e| format!("Failed to write Paper server: {e}"))?;
             Ok(InstalledLoader {
                 server_jar: jar_name,
                 launch_mode: "jar".to_string(),
+                loader_version: Some(metadata.id.to_string()),
             })
         }
         other => Err(unsupported_message(other)),

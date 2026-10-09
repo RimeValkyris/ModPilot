@@ -49,8 +49,14 @@ pub async fn install_java(
     tokio::fs::create_dir_all(&java_root)
         .await
         .map_err(|e| format!("Failed to create managed Java directory: {e}"))?;
-    java::install_temurin(&java_root, major).await?;
-    refresh_java_installations(&state.db).await?;
+    let java_exe = java::install_temurin(&java_root, major).await?;
+    // The managed folder isn't one of the places detection scans, so the
+    // new JDK has to be registered explicitly.
+    let detected = tauri::async_runtime::spawn_blocking(move || java::probe_java(&java_exe))
+        .await
+        .map_err(|e| format!("Java detection task failed: {e}"))?
+        .ok_or_else(|| "Java was installed but could not be run".to_string())?;
+    save_detected_java_installations(&state.db, vec![detected]).await?;
     list_java_installations(state).await
 }
 

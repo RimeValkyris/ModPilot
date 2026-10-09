@@ -16,6 +16,17 @@ pub fn is_reserved_windows_name(segment: &str) -> bool {
     RESERVED_NAMES.contains(&stem.to_ascii_uppercase().as_str())
 }
 
+/// Whether `name` is a plain `.jar` / `.jar.disabled` file name that is safe
+/// to join onto a plugins folder: no separators, drive/stream colons,
+/// traversal, control characters or Windows device names.
+pub fn is_safe_jar_file_name(name: &str) -> bool {
+    (name.ends_with(".jar") || name.ends_with(".jar.disabled"))
+        && !name.contains(['/', '\\', ':'])
+        && !name.contains("..")
+        && !name.chars().any(char::is_control)
+        && !is_reserved_windows_name(name)
+}
+
 /// Turns an arbitrary user-supplied instance name into a safe, single path
 /// segment usable as a directory name on both Windows and Linux.
 ///

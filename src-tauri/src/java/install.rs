@@ -64,8 +64,7 @@ pub async fn install_temurin(
         .map_err(|e| format!("Temurin Java {major} download failed: {e}"))?
         .bytes()
         .await
-        .map_err(|e| format!("Failed to read Temurin Java {major} download: {e}"))?
-        .to_vec();
+        .map_err(|e| format!("Failed to read Temurin Java {major} download: {e}"))?;
 
     if bytes.len() < 1024 {
         return Err("Temurin download was unexpectedly small".to_string());
@@ -80,9 +79,8 @@ pub async fn install_temurin(
     tracing::info!(java_major = major, sha256 = %digest, "Verified Temurin archive");
 
     let install_dir = destination_root.join(format!("temurin-{major}"));
-    let archive = bytes;
     let install_dir_for_task = install_dir.clone();
-    tokio::task::spawn_blocking(move || extract_archive(&archive, &install_dir_for_task))
+    tokio::task::spawn_blocking(move || extract_archive(bytes, &install_dir_for_task))
         .await
         .map_err(|e| format!("Java extraction task failed: {e}"))??;
 
@@ -91,7 +89,7 @@ pub async fn install_temurin(
     Ok(java)
 }
 
-fn extract_archive(bytes: &[u8], destination: &Path) -> Result<(), String> {
+fn extract_archive(bytes: impl AsRef<[u8]>, destination: &Path) -> Result<(), String> {
     let mut archive = zip::ZipArchive::new(Cursor::new(bytes))
         .map_err(|e| format!("Invalid Temurin ZIP archive: {e}"))?;
     let staging = destination.with_extension("installing");
@@ -134,12 +132,28 @@ fn extract_archive(bytes: &[u8], destination: &Path) -> Result<(), String> {
         .map(|entry| entry.path())
         .ok_or_else(|| "Extracted Java installation has no bin\\java.exe".to_string())?;
 
-    if destination.exists() {
-        std::fs::remove_dir_all(destination)
-            .map_err(|e| format!("Failed to replace existing Java installation: {e}"))?;
+    // Move the old install aside instead of deleting it, so a failure (or a
+    // JDK still in use) leaves the previous one intact.
+    let backup = destination.with_extension("old");
+    let had_previous = destination.exists();
+    if had_previous {
+        if backup.exists() {
+            std::fs::remove_dir_all(&backup)
+                .map_err(|e| format!("Failed to clear an old Java backup: {e}"))?;
+        }
+        std::fs::rename(destination, &backup).map_err(|e| {
+            format!("Failed to replace existing Java installation (is it in use?): {e}")
+        })?;
     }
-    std::fs::rename(&root, destination)
-        .map_err(|e| format!("Failed to finalize Java installation: {e}"))?;
+    if let Err(e) = std::fs::rename(&root, destination) {
+        if had_previous {
+            let _ = std::fs::rename(&backup, destination);
+        }
+        return Err(format!("Failed to finalize Java installation: {e}"));
+    }
+    if had_previous {
+        let _ = std::fs::remove_dir_all(&backup);
+    }
     std::fs::remove_dir_all(&staging)
         .map_err(|e| format!("Failed to clean Java installation staging directory: {e}"))?;
     Ok(())
