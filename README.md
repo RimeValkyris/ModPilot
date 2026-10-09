@@ -25,9 +25,13 @@ Built as a side/hobby or what ever you call this project and shared as open sour
 
 - **Import** an existing Minecraft server from a ZIP file (drag-and-drop or
   file picker) or an existing folder. Detects the Minecraft version, mod
-  loader (Forge / NeoForge / Fabric / Quilt / Vanilla), server JAR, mods,
-  config, world folder, and start scripts on a best-effort basis before
-  anything is copied.
+  loader (Paper / Forge / NeoForge / Fabric / Quilt / Vanilla), server JAR,
+  plugins, mods, config, world folder, and start scripts on a best-effort
+  basis before anything is copied.
+- **Paper server support**: create or import Paper instances, install the
+  official Paper server JAR through PaperMC's Fill API, and verify the
+  download with SHA-256 before it is installed. Imported Paper server JARs
+  are detected automatically.
 - **Runs the loader installer for you.** Most modern Forge/NeoForge packs
   ship an *installer* rather than a runnable server - start one as-is and
   you get the installer's GUI wizard instead of a server. ModpackPilot
@@ -61,12 +65,26 @@ Built as a side/hobby or what ever you call this project and shared as open sour
   whatever `java` happens to be first on `PATH`. A pack that never states
   its Minecraft version still gets one: it is derived from the NeoForge
   version, or read out of the installer's own `install_profile.json`.
+- **Managed Java installation**: install Windows x64 or ARM64 builds of
+  Eclipse Temurin Java 8, 17, 21, or 25 from the Java page. ModpackPilot
+  downloads the archive from Adoptium, verifies its published SHA-256
+  checksum, extracts it into private application storage, and registers it
+  without changing the system `PATH`, `JAVA_HOME`, or other Java
+  installations.
 - **Per-instance settings**: server JAR, JVM/server arguments, min/max RAM,
   auto-start, auto-restart.
 - **World backups**: one-click zip snapshot of an instance's world folder,
   with restore and delete.
 - **Mods management**: list, enable/disable (renames to `.jar.disabled`
   rather than deleting), and remove mods without touching the filesystem by hand.
+- **Plugin management**: manage Paper plugins in the instance's
+  `server/plugins/` folder. List installed plugins, filter by enabled state,
+  enable/disable without deleting, refresh the list, and remove plugins with
+  confirmation.
+- **Modrinth plugin browser**: search Modrinth's plugin catalog, expand a
+  project to view compatible versions, and install a verified plugin JAR
+  directly into the instance. Downloads use HTTPS and are checked against
+  Modrinth's SHA-1 hash before installation.
 - **Modpack updates**: link an instance to its Modrinth project or FTB
   modpack, then check for and one-click install newer versions - the world,
   whitelist/ops/bans, and `server.properties` are always left untouched. An
@@ -148,12 +166,12 @@ src-tauri/src/             Rust backend
 ├── commands/              Tauri commands (one module per feature area)
 ├── server/                Process lifecycle, log capture, resource monitor
 ├── importer/              Safe ZIP/folder import + server detection
-├── loader/                Forge/NeoForge/Fabric server installation
-├── java/                  Java installation detection
-├── modrinth/              Modrinth API client + .mrpack update installer
+├── loader/                Paper/Forge/NeoForge/Fabric server installation
+├── java/                  Java detection and verified managed JDK installation
+├── modrinth/              Modrinth API client, plugin downloads, and .mrpack installer
 ├── ftb/                   Feed the Beast API client + pack installer
 ├── packs/                 Pack file tracking for in-place updates
-├── mods/                  Mod listing, enable/disable, removal
+├── mods/                  Mod and plugin listing, enable/disable, removal
 ├── diagnostics/           Crash-log export and health checks
 ├── filesystem/            App-data paths, name sanitization
 ├── database/              SQLite pool + migration runner
@@ -175,6 +193,10 @@ src-tauri/migrations/      SQL schema migrations
   from a modpack API's response.
 - The Minecraft server process is spawned with an argument vector, never a
   shell string — no shell injection surface.
+- Managed JDK downloads are restricted to Adoptium's HTTPS API and are
+  verified against the SHA-256 checksum returned for the selected release
+  before extraction. Archives are extracted into a private application
+  directory with path traversal protection.
 - A restrictive Content-Security-Policy is set on the webview.
 
 ## Status

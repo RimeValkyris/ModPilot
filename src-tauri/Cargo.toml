@@ -53,6 +53,7 @@ base64 = "0.22"
 # FTB publishes a SHA-1 per pack file; verifying them is what keeps a
 # truncated download from becoming a corrupt jar that only fails at runtime.
 sha1 = "0.10"
+sha2 = "0.10"
 sysinfo = "0.32"
 # Just for `join_all`: the dashboard poll enriches every running instance
 # concurrently, and a serialized ping timeout would stack polls.
@@ -81,4 +82,3 @@ reqwest = { version = "0.12", default-features = false, features = [
 lto = true
 codegen-units = 1
 strip = true
-

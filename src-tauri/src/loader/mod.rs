@@ -14,12 +14,14 @@
 
 use std::path::{Path, PathBuf};
 
+use sha2::Digest;
 use crate::importer;
 use crate::models::ServerLoader;
 
 const FORGE_MAVEN: &str = "https://maven.minecraftforge.net/net/minecraftforge/forge";
 const NEOFORGE_MAVEN: &str = "https://maven.neoforged.net/releases/net/neoforged/neoforge";
 const FABRIC_META: &str = "https://meta.fabricmc.net/v2/versions";
+const PAPER_FILL: &str = "https://fill.papermc.io/v3/projects/paper";
 
 /// The Fabric *installer* version used to build a server launch jar URL.
 /// Pinned deliberately - Fabric's meta endpoint wants an explicit version
@@ -36,6 +38,25 @@ pub struct InstalledLoader {
     pub launch_mode: String,
 }
 
+#[derive(Debug, serde::Deserialize)]
+struct PaperBuild {
+    build: u32,
+    downloads: PaperDownloads,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct PaperDownloads {
+    application: PaperApplication,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct PaperApplication {
+    #[allow(dead_code)]
+    name: String,
+    url: String,
+    sha256: String,
+}
+
 fn client() -> reqwest::Client {
     reqwest::Client::builder()
         .user_agent(concat!("ModpackPilot/", env!("CARGO_PKG_VERSION"), " (+https://github.com/RimeValkyris/ModPilot)"))
@@ -48,7 +69,10 @@ fn client() -> reqwest::Client {
 pub fn is_supported(loader: ServerLoader) -> bool {
     matches!(
         loader,
-        ServerLoader::Forge | ServerLoader::NeoForge | ServerLoader::Fabric
+        ServerLoader::Forge
+            | ServerLoader::NeoForge
+            | ServerLoader::Fabric
+            | ServerLoader::Paper
     )
 }
 
@@ -311,7 +335,7 @@ pub async fn install(
     minecraft_version: Option<&str>,
     java_path: &str,
 ) -> Result<InstalledLoader, String> {
-    match loader {
+    return match loader {
         ServerLoader::Forge => {
             let mc = minecraft_version.ok_or_else(|| {
                 "Forge needs to know which Minecraft version to install for, and this pack \
@@ -351,8 +375,56 @@ pub async fn install(
                 launch_mode: "jar".to_string(),
             })
         }
+        ServerLoader::Paper => {
+            let mc = minecraft_version.ok_or_else(|| {
+                "Paper needs to know which Minecraft version to install for, and this instance \
+                 didn't say."
+                    .to_string()
+            })?;
+            let build = if loader_version.is_empty() || loader_version.eq_ignore_ascii_case("latest") {
+                "latest".to_string()
+            } else {
+                loader_version.to_string()
+            };
+            let response = client()
+                .get(format!("{PAPER_FILL}/versions/{mc}/builds/{build}"))
+                .send()
+                .await
+                .map_err(|e| format!("Failed to reach PaperMC: {e}"))?
+                .error_for_status()
+                .map_err(|e| format!("PaperMC did not publish a build for Minecraft {mc}: {e}"))?;
+            let metadata: PaperBuild = response
+                .json()
+                .await
+                .map_err(|e| format!("Failed to parse PaperMC's response: {e}"))?;
+            let expected = metadata.downloads.application.sha256.to_lowercase();
+            let bytes = client()
+                .get(&metadata.downloads.application.url)
+                .send()
+                .await
+                .map_err(|e| format!("Failed to download Paper: {e}"))?
+                .error_for_status()
+                .map_err(|e| format!("Failed to download Paper: {e}"))?
+                .bytes()
+                .await
+                .map_err(|e| format!("Failed to read the Paper download: {e}"))?;
+            let actual = format!("{:x}", sha2::Sha256::digest(&bytes));
+            if actual != expected {
+                return Err(format!(
+                    "Paper download failed its SHA-256 checksum (expected {expected}, got {actual})"
+                ));
+            }
+            let jar_name = format!("paper-{mc}-{}.jar", metadata.build);
+            tokio::fs::write(server_dir.join(&jar_name), &bytes)
+                .await
+                .map_err(|e| format!("Failed to write Paper server: {e}"))?;
+            Ok(InstalledLoader {
+                server_jar: jar_name,
+                launch_mode: "jar".to_string(),
+            })
+        }
         other => Err(unsupported_message(other)),
-    }
+    };
 }
 
 /// Every coordinate a Forge installer might live under, most likely first.

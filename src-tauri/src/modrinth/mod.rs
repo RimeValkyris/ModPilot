@@ -26,7 +26,11 @@ fn client() -> &'static reqwest::Client {
 }
 
 pub async fn search_projects(query: &str) -> Result<Vec<ModrinthSearchHit>, String> {
-    search_modpacks(query, "relevance").await
+    search_projects_of_type(query, "modpack", "relevance").await
+}
+
+pub async fn search_plugins(query: &str) -> Result<Vec<ModrinthSearchHit>, String> {
+    search_projects_of_type(query, "plugin", "relevance").await
 }
 
 /// The list shown before anyone has typed a search term: the most
@@ -38,11 +42,19 @@ pub async fn browse_projects() -> Result<Vec<ModrinthSearchHit>, String> {
 }
 
 async fn search_modpacks(query: &str, index: &str) -> Result<Vec<ModrinthSearchHit>, String> {
+    search_projects_of_type(query, "modpack", index).await
+}
+
+async fn search_projects_of_type(
+    query: &str,
+    project_type: &str,
+    index: &str,
+) -> Result<Vec<ModrinthSearchHit>, String> {
     let response = client()
         .get(format!("{BASE_URL}/search"))
         .query(&[
             ("query", query),
-            ("facets", r#"[["project_type:modpack"]]"#),
+            ("facets", &format!(r#"[["project_type:{project_type}"]]"#)),
             ("index", index),
             ("limit", "20"),
         ])
@@ -58,6 +70,49 @@ async fn search_modpacks(query: &str, index: &str) -> Result<Vec<ModrinthSearchH
         .map_err(|e| format!("Failed to parse Modrinth's response: {e}"))?;
 
     Ok(parsed.hits)
+}
+
+pub async fn download_plugin(
+    version_id: &str,
+    filename: &str,
+    plugins_dir: &Path,
+) -> Result<(), String> {
+    let version = get_version(version_id).await?;
+    let file = version
+        .files
+        .iter()
+        .find(|file| file.filename == filename)
+        .ok_or_else(|| "The selected plugin file is no longer available".to_string())?;
+    if !file.filename.ends_with(".jar")
+        || file.filename.contains('/')
+        || file.filename.contains('\\')
+        || file.filename.contains("..")
+    {
+        return Err("Modrinth returned an unsafe plugin filename".to_string());
+    }
+    if !file.url.starts_with("https://") {
+        return Err("Refusing to download a plugin over an insecure link".to_string());
+    }
+    let expected = file
+        .hashes
+        .get("sha1")
+        .ok_or_else(|| "Modrinth did not provide a SHA-1 checksum for this plugin".to_string())?
+        .to_lowercase();
+    let bytes = download_bytes(&file.url).await?;
+    let actual = format!("{:x}", sha1::Sha1::digest(&bytes));
+    if actual != expected {
+        return Err(format!("Plugin checksum mismatch (expected {expected}, got {actual})"));
+    }
+    tokio::fs::create_dir_all(plugins_dir)
+        .await
+        .map_err(|e| format!("Failed to create plugins folder: {e}"))?;
+    let tmp = plugins_dir.join(format!(".{}.download", file.filename));
+    tokio::fs::write(&tmp, bytes)
+        .await
+        .map_err(|e| format!("Failed to write plugin download: {e}"))?;
+    tokio::fs::rename(&tmp, plugins_dir.join(&file.filename))
+        .await
+        .map_err(|e| format!("Failed to install plugin: {e}"))
 }
 
 /// Turns a Modrinth 404 into a message that actually explains what to do

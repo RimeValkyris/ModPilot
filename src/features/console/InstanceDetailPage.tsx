@@ -16,6 +16,7 @@ import { AutomationCard } from "@/features/settings/AutomationCard";
 import { InstanceLogsTab } from "@/features/console/InstanceLogsTab";
 import { InstanceFilesTab } from "@/features/console/InstanceFilesTab";
 import { InstanceModsTab } from "@/features/console/InstanceModsTab";
+import { InstancePluginsTab } from "@/features/console/InstancePluginsTab";
 import { InstancePlayersTab } from "@/features/console/InstancePlayersTab";
 import { OnlinePlayersCard } from "@/features/console/OnlinePlayersCard";
 import { InstanceDashboard } from "@/features/console/InstanceDashboard";
@@ -27,6 +28,7 @@ const TABS = [
   "console",
   "files",
   "mods",
+  "plugins",
   "players",
   "configuration",
   "diagnostics",
@@ -97,6 +99,7 @@ export function InstanceDetailPage() {
           <TabsTrigger value="console">Console</TabsTrigger>
           <TabsTrigger value="files">Files</TabsTrigger>
           <TabsTrigger value="mods">Mods</TabsTrigger>
+          <TabsTrigger value="plugins">Plugins</TabsTrigger>
           <TabsTrigger value="players">Players</TabsTrigger>
           <TabsTrigger value="configuration">Configuration</TabsTrigger>
           <TabsTrigger value="diagnostics">Diagnostics</TabsTrigger>
@@ -162,6 +165,9 @@ export function InstanceDetailPage() {
         </TabsContent>
         <TabsContent value="mods">
           <InstanceModsTab instance={instance} />
+        </TabsContent>
+        <TabsContent value="plugins">
+          <InstancePluginsTab instance={instance} />
         </TabsContent>
         <TabsContent value="players" className="flex flex-col gap-4">
           <OnlinePlayersCard instance={instance} />

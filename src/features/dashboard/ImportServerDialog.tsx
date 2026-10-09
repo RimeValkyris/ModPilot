@@ -44,6 +44,7 @@ const LOADER_LABELS: Record<ServerLoader, string> = {
   neoforge: "NeoForge",
   fabric: "Fabric",
   quilt: "Quilt",
+  paper: "Paper",
   unknown: "Unknown",
 };
 

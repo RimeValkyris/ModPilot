@@ -37,6 +37,68 @@ async fn mods_dir_for(state: &State<'_, AppState>, id: &str) -> Result<std::path
     Ok(Path::new(&instance.server_directory).join("server").join("mods"))
 }
 
+async fn plugins_dir_for(state: &State<'_, AppState>, id: &str) -> Result<std::path::PathBuf, String> {
+    let instance = fetch_instance(state, id)
+        .await?
+        .ok_or_else(|| "Instance not found".to_string())?;
+    Ok(Path::new(&instance.server_directory).join("server").join("plugins"))
+}
+
+fn validate_plugin_file_name(name: &str) -> Result<(), String> {
+    let safe = (name.ends_with(".jar") || name.ends_with(".jar.disabled"))
+        && !name.contains('/')
+        && !name.contains('\\')
+        && !name.contains(':')
+        && !name.contains("..")
+        && !name.chars().any(char::is_control);
+    if safe { Ok(()) } else { Err("Invalid plugin file name".to_string()) }
+}
+
+#[tauri::command]
+pub async fn list_plugins(state: State<'_, AppState>, id: String) -> Result<Vec<ModInfo>, String> {
+    let dir = plugins_dir_for(&state, &id).await?;
+    let mut entries = match tokio::fs::read_dir(&dir).await {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => return Err(format!("Failed to read plugins folder: {e}")),
+    };
+    let mut plugins = Vec::new();
+    while let Some(entry) = entries.next_entry().await.map_err(|e| format!("Failed to read plugins folder: {e}"))? {
+        let file_name = entry.file_name().to_string_lossy().to_string();
+        if !file_name.ends_with(".jar") && !file_name.ends_with(".jar.disabled") { continue; }
+        let Ok(metadata) = entry.metadata().await else { continue };
+        plugins.push(ModInfo {
+            display_name: file_name.strip_suffix(".disabled").unwrap_or(&file_name).to_string(),
+            enabled: file_name.ends_with(".jar"),
+            size_bytes: metadata.len(),
+            file_name,
+        });
+    }
+    plugins.sort_by(|a, b| a.display_name.cmp(&b.display_name));
+    Ok(plugins)
+}
+
+#[tauri::command]
+pub async fn toggle_plugin(state: State<'_, AppState>, id: String, file_name: String) -> Result<(), String> {
+    validate_plugin_file_name(&file_name)?;
+    let dir = plugins_dir_for(&state, &id).await?;
+    let new_name = file_name.strip_suffix(".disabled")
+        .map(str::to_string)
+        .unwrap_or_else(|| format!("{file_name}.disabled"));
+    tokio::fs::rename(dir.join(&file_name), dir.join(new_name))
+        .await
+        .map_err(|e| format!("Failed to toggle plugin: {e}"))
+}
+
+#[tauri::command]
+pub async fn delete_plugin(state: State<'_, AppState>, id: String, file_name: String) -> Result<(), String> {
+    validate_plugin_file_name(&file_name)?;
+    let dir = plugins_dir_for(&state, &id).await?;
+    tokio::fs::remove_file(dir.join(file_name))
+        .await
+        .map_err(|e| format!("Failed to delete plugin: {e}"))
+}
+
 /// Lists the instance's mods folder. A `.jar.disabled` file is a mod
 /// `toggle_mod` has switched off - Minecraft loaders only load `.jar`, so
 /// renaming it is a simple, loader-agnostic way to disable a mod without

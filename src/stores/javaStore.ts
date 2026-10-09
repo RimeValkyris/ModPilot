@@ -11,6 +11,7 @@ interface JavaState {
   fetchInstallations: () => Promise<void>;
   /** Rescans the system (`java -version` sweep) and refreshes the list. */
   rescan: () => Promise<void>;
+  install: (major: number) => Promise<void>;
   setDefault: (id: string) => Promise<void>;
 }
 
@@ -44,6 +45,17 @@ export const useJavaStore = create<JavaState>((set, get) => ({
       set({ installations, isScanning: false });
     } catch (err) {
       set({ error: String(err), isScanning: false });
+    }
+  },
+
+  install: async (major) => {
+    set({ isScanning: true, error: null });
+    try {
+      const installations = await api.installJava(major);
+      set({ installations, isScanning: false });
+    } catch (err) {
+      set({ error: String(err), isScanning: false });
+      throw err;
     }
   },
 

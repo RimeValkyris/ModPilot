@@ -1,12 +1,12 @@
 import { useEffect } from "react";
 import { toast } from "sonner";
-import { Coffee, RefreshCw, Star } from "lucide-react";
+import { Coffee, Download, RefreshCw, Star } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useJavaStore } from "@/stores/javaStore";
 
 export function JavaPage() {
-  const { installations, isLoading, isScanning, error, fetchInstallations, rescan, setDefault } =
+  const { installations, isLoading, isScanning, error, fetchInstallations, rescan, install, setDefault } =
     useJavaStore();
 
   useEffect(() => {
@@ -30,6 +30,17 @@ export function JavaPage() {
     }
   }
 
+  async function handleInstall(major: number) {
+    try {
+      await install(major);
+      toast.success(`Java ${major} installed`, {
+        description: "The installation was added to ModpackPilot.",
+      });
+    } catch (err) {
+      toast.error(`Java ${major} installation failed`, { description: String(err) });
+    }
+  }
+
   return (
     <div className="mx-auto flex max-w-5xl flex-col gap-6 p-8">
       <header className="flex items-center justify-between">
@@ -44,6 +55,26 @@ export function JavaPage() {
           {isScanning ? "Scanning…" : "Rescan"}
         </Button>
       </header>
+
+      <section className="rounded-xl border border-border bg-card p-5">
+        <div className="mb-4">
+          <h2 className="font-medium">Install a JDK</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Downloads Eclipse Temurin from Adoptium and installs it privately for ModpackPilot.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {[8, 17, 21, 25].map((major) => (
+            <Button key={major} variant="outline" onClick={() => handleInstall(major)} disabled={isScanning}>
+              <Download />
+              Java {major}
+            </Button>
+          ))}
+        </div>
+        <p className="mt-3 text-xs text-muted-foreground">
+          Windows x64 and ARM64 are supported. Existing system Java installations are not changed.
+        </p>
+      </section>
 
       {error && (
         <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">

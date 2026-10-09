@@ -10,6 +10,7 @@ export type ServerLoader =
   | "neoforge"
   | "fabric"
   | "quilt"
+  | "paper"
   | "unknown";
 
 export type ServerStatus =
@@ -85,6 +86,7 @@ export const SERVER_LOADERS: ServerLoader[] = [
   "neoforge",
   "fabric",
   "quilt",
+  "paper",
 ];
 
 /** Mirrors Rust's `LaunchHistoryEntry`. */

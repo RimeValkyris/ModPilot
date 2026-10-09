@@ -25,8 +25,12 @@ export function needsForgeInstall(instance: Instance): boolean {
   return !instance.serverJar || instance.serverJar.toLowerCase().includes("installer");
 }
 
+export function needsPaperInstall(instance: Instance): boolean {
+  return instance.loader === "paper" && (!instance.serverJar || instance.launchMode !== "jar");
+}
+
 export function ForgeInstallBanner({ instance }: { instance: Instance }) {
-  const { installForgeServer } = useInstancesStore();
+  const { installForgeServer, installPaperServer } = useInstancesStore();
   const [isInstalling, setIsInstalling] = useState(false);
   const [step, setStep] = useState<string | null>(null);
 
@@ -49,13 +53,17 @@ export function ForgeInstallBanner({ instance }: { instance: Instance }) {
     });
   }, [isInstalling, instance.id]);
 
-  if (!needsForgeInstall(instance)) return null;
+  if (!needsForgeInstall(instance) && !needsPaperInstall(instance)) return null;
 
   async function handleInstall() {
     setIsInstalling(true);
     setStep(null);
     try {
-      await installForgeServer(instance.id);
+      if (needsPaperInstall(instance)) {
+        await installPaperServer(instance.id);
+      } else {
+        await installForgeServer(instance.id);
+      }
       toast.success("Server installed - it's ready to start.");
     } catch (err) {
       toast.error("Installation failed", { description: String(err) });
@@ -80,7 +88,7 @@ export function ForgeInstallBanner({ instance }: { instance: Instance }) {
       </p>
       <Button size="sm" className="w-fit" disabled={isInstalling} onClick={handleInstall}>
         <Hammer />
-        {isInstalling ? "Installing…" : "Install Forge/NeoForge Server"}
+        {isInstalling ? "Installing…" : needsPaperInstall(instance) ? "Install Paper Server" : "Install Forge/NeoForge Server"}
       </Button>
 
       {isInstalling && (

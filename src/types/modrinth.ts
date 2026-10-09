@@ -18,6 +18,14 @@ export interface ModrinthVersion {
   datePublished: string;
   loaders: string[];
   gameVersions: string[];
+  files: ModrinthVersionFile[];
+}
+
+export interface ModrinthVersionFile {
+  url: string;
+  filename: string;
+  primary: boolean;
+  hashes: Record<string, string>;
 }
 
 /** Mirrors Rust's `ModrinthVersionPreview` - what installing a version

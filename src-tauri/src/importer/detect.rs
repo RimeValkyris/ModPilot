@@ -424,6 +424,17 @@ fn detect_loader_and_version(
         }
     } else if any_path_contains("quilt") {
         info.loader = ServerLoader::Quilt;
+    } else if any_path_contains("paper")
+        || root_jars.iter().any(|jar| jar.to_ascii_lowercase().contains("paper"))
+    {
+        info.loader = ServerLoader::Paper;
+        let re = Regex::new(r"paper-([\d.]+)-(\d+)\.jar").unwrap();
+        if let Some(path) = lower_paths.iter().find(|p| re.is_match(p)) {
+            if let Some(caps) = re.captures(path) {
+                info.minecraft_version = caps.get(1).map(|m| m.as_str().to_string());
+                info.loader_version = caps.get(2).map(|m| m.as_str().to_string());
+            }
+        }
     } else if root_jars.iter().any(|j| j.to_lowercase() == "server.jar")
         || any_path_contains("minecraft_server")
     {
@@ -668,6 +679,7 @@ fn pick_server_jar(root_jars: &[&str], loader: ServerLoader) -> Option<String> {
             .find(|j| j.to_lowercase().contains("neoforge")),
         ServerLoader::Fabric => root_jars.iter().find(|j| j.to_lowercase().contains("fabric")),
         ServerLoader::Quilt => root_jars.iter().find(|j| j.to_lowercase().contains("quilt")),
+        ServerLoader::Paper => root_jars.iter().find(|j| j.to_lowercase().contains("paper")),
         ServerLoader::Unknown => None,
     };
 

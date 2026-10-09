@@ -40,6 +40,20 @@ pub async fn detect_java_installations(state: State<'_, AppState>) -> Result<Vec
     list_java_installations(state).await
 }
 
+#[tauri::command]
+pub async fn install_java(
+    state: State<'_, AppState>,
+    major: u32,
+) -> Result<Vec<JavaInstallation>, String> {
+    let java_root = state.paths.app_data_dir.join("java");
+    tokio::fs::create_dir_all(&java_root)
+        .await
+        .map_err(|e| format!("Failed to create managed Java directory: {e}"))?;
+    java::install_temurin(&java_root, major).await?;
+    refresh_java_installations(&state.db).await?;
+    list_java_installations(state).await
+}
+
 /// Scans the host and persists the discovered installations for workflows
 /// that need Java resolution without going through the Java page first.
 pub(crate) async fn refresh_java_installations(db: &sqlx::SqlitePool) -> Result<(), String> {

@@ -441,6 +441,47 @@ pub async fn install_forge_server(
         .ok_or_else(|| "Instance not found".to_string())
 }
 
+/// Downloads the official Paper server for an instance and records the
+/// resulting runnable jar. Paper's Fill API returns the latest build and
+/// checksum, so this path does not require a Java installation.
+#[tauri::command]
+pub async fn install_paper_server(
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<Instance, String> {
+    let instance = fetch_instance(&state, &id)
+        .await?
+        .ok_or_else(|| "Instance not found".to_string())?;
+    if instance.loader != ServerLoader::Paper {
+        return Err("Install Paper Server can only be used for a Paper instance".to_string());
+    }
+    let minecraft_version = instance
+        .minecraft_version
+        .as_deref()
+        .ok_or_else(|| "Paper needs a Minecraft version before it can be installed".to_string())?;
+    let installed = crate::loader::install(
+        &Path::new(&instance.server_directory).join("server"),
+        ServerLoader::Paper,
+        instance.loader_version.as_deref().unwrap_or("latest"),
+        Some(minecraft_version),
+        "java",
+    )
+    .await?;
+    sqlx::query(
+        "UPDATE instances SET server_jar = ?, launch_mode = ?, loader_version = COALESCE(?, loader_version) WHERE id = ?",
+    )
+    .bind(&installed.server_jar)
+    .bind(&installed.launch_mode)
+    .bind(instance.loader_version.as_deref())
+    .bind(&id)
+    .execute(&state.db)
+    .await
+    .map_err(|e| format!("Paper installed, but failed to save the result: {e}"))?;
+    fetch_instance(&state, &id)
+        .await?
+        .ok_or_else(|| "Instance not found".to_string())
+}
+
 /// Runs an instance's Forge/NeoForge installer and reports what it produced,
 /// without touching the database - the callers decide what to record.
 ///

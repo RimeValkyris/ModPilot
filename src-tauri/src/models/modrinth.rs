@@ -32,12 +32,15 @@ pub struct ModrinthProject {
     pub title: String,
 }
 
-#[derive(Debug, Clone, Deserialize)]
-pub(crate) struct ModrinthVersionFile {
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModrinthVersionFile {
     pub url: String,
     pub filename: String,
     #[serde(default)]
     pub primary: bool,
+    #[serde(default)]
+    pub hashes: std::collections::HashMap<String, String>,
 }
 
 /// One published version of a Modrinth project.
@@ -58,7 +61,7 @@ pub struct ModrinthVersion {
     // and show its changelog; `apply_update` reads this directly off a
     // freshly-fetched `ModrinthVersion` on the Rust side instead.
     #[serde(skip)]
-    pub(crate) files: Vec<ModrinthVersionFile>,
+    pub files: Vec<ModrinthVersionFile>,
 }
 
 /// Result of comparing an instance's installed version against the latest

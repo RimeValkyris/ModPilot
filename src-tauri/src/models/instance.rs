@@ -10,6 +10,7 @@ pub enum ServerLoader {
     NeoForge,
     Fabric,
     Quilt,
+    Paper,
     #[default]
     Unknown,
 }
@@ -22,6 +23,7 @@ impl ServerLoader {
             ServerLoader::NeoForge => "neoforge",
             ServerLoader::Fabric => "fabric",
             ServerLoader::Quilt => "quilt",
+            ServerLoader::Paper => "paper",
             ServerLoader::Unknown => "unknown",
         }
     }
@@ -35,6 +37,7 @@ impl From<&str> for ServerLoader {
             "neoforge" => ServerLoader::NeoForge,
             "fabric" => ServerLoader::Fabric,
             "quilt" => ServerLoader::Quilt,
+            "paper" => ServerLoader::Paper,
             _ => ServerLoader::Unknown,
         }
     }

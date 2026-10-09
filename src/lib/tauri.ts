@@ -95,6 +95,9 @@ export const api = {
 
   detectJavaInstallations: () => invoke<JavaInstallation[]>("detect_java_installations"),
 
+  installJava: (major: number) =>
+    invoke<JavaInstallation[]>("install_java", { major }),
+
   setDefaultJava: (id: string) => invoke<void>("set_default_java", { id }),
 
   startInstance: (id: string) => invoke<void>("start_instance", { id }),
@@ -208,6 +211,11 @@ export const api = {
   toggleMod: (id: string, fileName: string) => invoke<void>("toggle_mod", { id, fileName }),
 
   deleteMod: (id: string, fileName: string) => invoke<void>("delete_mod", { id, fileName }),
+  listPlugins: (id: string) => invoke<ModInfo[]>("list_plugins", { id }),
+  togglePlugin: (id: string, fileName: string) =>
+    invoke<void>("toggle_plugin", { id, fileName }),
+  deletePlugin: (id: string, fileName: string) =>
+    invoke<void>("delete_plugin", { id, fileName }),
 
   getAppSetting: (key: string) => invoke<string | null>("get_app_setting", { key }),
 
@@ -275,6 +283,8 @@ export const api = {
 
   searchModrinthProjects: (query: string) =>
     invoke<ModrinthSearchHit[]>("search_modrinth_projects", { query }),
+  searchModrinthPlugins: (query: string) =>
+    invoke<ModrinthSearchHit[]>("search_modrinth_plugins", { query }),
 
   browseModrinthPacks: () => invoke<ModrinthSearchHit[]>("browse_modrinth_packs"),
 
@@ -283,6 +293,8 @@ export const api = {
 
   analyzeModrinthVersion: (versionId: string) =>
     invoke<ModrinthVersionPreview>("analyze_modrinth_version", { versionId }),
+  installModrinthPlugin: (id: string, versionId: string, filename: string) =>
+    invoke<void>("install_modrinth_plugin", { id, versionId, filename }),
 
   importModrinthInstance: (request: ModrinthImportRequest) =>
     invoke<Instance>("import_modrinth_instance", { request }),
@@ -302,6 +314,7 @@ export const api = {
     invoke<Instance>("apply_modpack_update", { id, versionId }),
 
   installForgeServer: (id: string) => invoke<Instance>("install_forge_server", { id }),
+  installPaperServer: (id: string) => invoke<Instance>("install_paper_server", { id }),
 
   setUpdatePolicy: (id: string, policy: string) =>
     invoke<Instance>("set_update_policy", { id, policy }),

@@ -23,7 +23,7 @@ pub use mod_info::ModInfo;
 pub(crate) use modrinth::MrpackIndex;
 pub use modrinth::{
     AppliedPack, ModpackUpdateCheck, ModrinthImportRequest, ModrinthProject,
-    ModrinthSearchHit, ModrinthVersion, ModrinthVersionPreview,
+    ModrinthSearchHit, ModrinthVersion, ModrinthVersionFile, ModrinthVersionPreview,
 };
-pub(crate) use modrinth::{ModrinthSearchResponse, ModrinthVersionFile};
+pub(crate) use modrinth::ModrinthSearchResponse;
 pub use resource_usage::{DiskUsage, PerformanceSample, ResourceUsage, ServerPing};

@@ -29,6 +29,32 @@ pub async fn search_modrinth_projects(query: String) -> Result<Vec<ModrinthSearc
     modrinth::search_projects(query.trim()).await
 }
 
+#[tauri::command]
+pub async fn search_modrinth_plugins(query: String) -> Result<Vec<ModrinthSearchHit>, String> {
+    if query.trim().is_empty() {
+        return Ok(Vec::new());
+    }
+    modrinth::search_plugins(query.trim()).await
+}
+
+#[tauri::command]
+pub async fn install_modrinth_plugin(
+    state: State<'_, AppState>,
+    id: String,
+    version_id: String,
+    filename: String,
+) -> Result<(), String> {
+    let instance = fetch_instance(&state, &id)
+        .await?
+        .ok_or_else(|| "Instance not found".to_string())?;
+    modrinth::download_plugin(
+        &version_id,
+        &filename,
+        &Path::new(&instance.server_directory).join("server").join("plugins"),
+    )
+    .await
+}
+
 /// The list of modpacks shown before anyone has typed a search term: the
 /// most downloaded ones on Modrinth.
 #[tauri::command]
