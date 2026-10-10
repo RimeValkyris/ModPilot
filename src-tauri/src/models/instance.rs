@@ -11,6 +11,11 @@ pub enum ServerLoader {
     Fabric,
     Quilt,
     Paper,
+    Purpur,
+    Spigot,
+    /// CraftBukkit - built from the same BuildTools run as Spigot, without
+    /// Spigot's patches.
+    Bukkit,
     #[default]
     Unknown,
 }
@@ -24,6 +29,9 @@ impl ServerLoader {
             ServerLoader::Fabric => "fabric",
             ServerLoader::Quilt => "quilt",
             ServerLoader::Paper => "paper",
+            ServerLoader::Purpur => "purpur",
+            ServerLoader::Spigot => "spigot",
+            ServerLoader::Bukkit => "bukkit",
             ServerLoader::Unknown => "unknown",
         }
     }
@@ -38,6 +46,9 @@ impl From<&str> for ServerLoader {
             "fabric" => ServerLoader::Fabric,
             "quilt" => ServerLoader::Quilt,
             "paper" => ServerLoader::Paper,
+            "purpur" => ServerLoader::Purpur,
+            "spigot" => ServerLoader::Spigot,
+            "bukkit" => ServerLoader::Bukkit,
             _ => ServerLoader::Unknown,
         }
     }

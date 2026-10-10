@@ -50,6 +50,19 @@ pub async fn create_instance(
         return Err("Instance name cannot be empty".to_string());
     }
 
+    // Versions end up in download URLs and jar file names later on, so a
+    // malformed one is rejected here rather than stored.
+    for (label, value) in [
+        ("Minecraft version", request.minecraft_version.as_deref()),
+        ("loader version", request.loader_version.as_deref()),
+    ] {
+        if let Some(value) = value.map(str::trim).filter(|v| !v.is_empty()) {
+            if !crate::loader::is_safe_version_string(value) {
+                return Err(format!("\"{value}\" is not a valid {label}"));
+            }
+        }
+    }
+
     let default_min_ram = get_setting(&state.db, "default_min_ram_mb")
         .await?
         .and_then(|v| v.parse().ok())

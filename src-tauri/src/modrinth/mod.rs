@@ -29,8 +29,41 @@ pub async fn search_projects(query: &str) -> Result<Vec<ModrinthSearchHit>, Stri
     search_projects_of_type(query, "modpack", "relevance").await
 }
 
-pub async fn search_plugins(query: &str) -> Result<Vec<ModrinthSearchHit>, String> {
-    search_projects_of_type(query, "plugin", "relevance").await
+/// Plugin search, narrowed to what can actually run on the server: the
+/// instance's Minecraft version and the plugin loaders its server type
+/// accepts. Filtering here (rather than after the fact) means an
+/// incompatible plugin never shows up to be installed.
+pub async fn search_plugins(
+    query: &str,
+    minecraft_version: Option<&str>,
+    loader: ServerLoader,
+) -> Result<Vec<ModrinthSearchHit>, String> {
+    // An empty query browses: most-downloaded first, so the plugin list is
+    // there the moment the tab opens instead of waiting for a search.
+    let index = if query.trim().is_empty() { "downloads" } else { "relevance" };
+
+    let mut extra: Vec<Vec<String>> = Vec::new();
+    // Each inner list is an OR group; the groups are ANDed together.
+    if let Some(version) = minecraft_version
+        .map(str::trim)
+        .filter(|v| !v.is_empty() && v.chars().all(|c| c.is_ascii_digit() || c == '.'))
+    {
+        extra.push(vec![format!("versions:{version}")]);
+    }
+    let categories: &[&str] = match loader {
+        // Spigot/Bukkit plugins run on Paper, and on Paper's forks.
+        ServerLoader::Paper => &["paper", "spigot", "bukkit"],
+        ServerLoader::Purpur => &["purpur", "paper", "spigot", "bukkit"],
+        ServerLoader::Spigot => &["spigot", "bukkit"],
+        // CraftBukkit has no Spigot API, so Spigot-only plugins would fail.
+        ServerLoader::Bukkit => &["bukkit"],
+        _ => &[],
+    };
+    if !categories.is_empty() {
+        extra.push(categories.iter().map(|c| format!("categories:{c}")).collect());
+    }
+
+    search_with_facets(query, "plugin", index, extra).await
 }
 
 /// The list shown before anyone has typed a search term: the most
@@ -50,11 +83,26 @@ async fn search_projects_of_type(
     project_type: &str,
     index: &str,
 ) -> Result<Vec<ModrinthSearchHit>, String> {
+    search_with_facets(query, project_type, index, Vec::new()).await
+}
+
+async fn search_with_facets(
+    query: &str,
+    project_type: &str,
+    index: &str,
+    extra_facets: Vec<Vec<String>>,
+) -> Result<Vec<ModrinthSearchHit>, String> {
+    let mut facets = vec![vec![format!("project_type:{project_type}")]];
+    facets.extend(extra_facets);
+    // Serialized rather than formatted into a string, so a value can never
+    // break out of its quotes and alter the query.
+    let facets = serde_json::to_string(&facets)
+        .map_err(|e| format!("Failed to build the Modrinth search filter: {e}"))?;
     let response = client()
         .get(format!("{BASE_URL}/search"))
         .query(&[
             ("query", query),
-            ("facets", &format!(r#"[["project_type:{project_type}"]]"#)),
+            ("facets", facets.as_str()),
             ("index", index),
             ("limit", "20"),
         ])

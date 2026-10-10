@@ -424,6 +424,27 @@ fn detect_loader_and_version(
         }
     } else if any_path_contains("quilt") {
         info.loader = ServerLoader::Quilt;
+    } else if let Some((loader, re)) = root_jars.iter().find_map(|jar| {
+        // BuildTools' output names: spigot-1.21.4.jar / craftbukkit-1.21.4.jar.
+        let lower = jar.to_ascii_lowercase();
+        if lower.starts_with("spigot-") {
+            Some((ServerLoader::Spigot, r"spigot-(\d+(?:\.\d+)+)\.jar"))
+        } else if lower.starts_with("craftbukkit-") {
+            Some((ServerLoader::Bukkit, r"craftbukkit-(\d+(?:\.\d+)+)\.jar"))
+        } else {
+            None
+        }
+    }) {
+        info.loader = loader;
+        let re = Regex::new(re).unwrap();
+        info.minecraft_version = find_capture(lower_paths, &re, 1);
+    } else if root_jars.iter().any(|jar| jar.to_ascii_lowercase().contains("purpur")) {
+        info.loader = ServerLoader::Purpur;
+        let re = Regex::new(r"purpur-([\d.]+)-(\d+)\.jar").unwrap();
+        if let Some(caps) = lower_paths.iter().find_map(|p| re.captures(p)) {
+            info.minecraft_version = caps.get(1).map(|m| m.as_str().to_string());
+            info.loader_version = caps.get(2).map(|m| m.as_str().to_string());
+        }
     } else if lower_paths.iter().any(|p| {
         matches!(
             p.as_str(),
@@ -684,6 +705,9 @@ fn pick_server_jar(root_jars: &[&str], loader: ServerLoader) -> Option<String> {
         ServerLoader::Fabric => root_jars.iter().find(|j| j.to_lowercase().contains("fabric")),
         ServerLoader::Quilt => root_jars.iter().find(|j| j.to_lowercase().contains("quilt")),
         ServerLoader::Paper => root_jars.iter().find(|j| j.to_lowercase().contains("paper")),
+        ServerLoader::Purpur => root_jars.iter().find(|j| j.to_lowercase().contains("purpur")),
+        ServerLoader::Spigot => root_jars.iter().find(|j| j.to_lowercase().starts_with("spigot")),
+        ServerLoader::Bukkit => root_jars.iter().find(|j| j.to_lowercase().starts_with("craftbukkit")),
         ServerLoader::Unknown => None,
     };
 

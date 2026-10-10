@@ -66,24 +66,35 @@ export function InstancePluginsTab({ instance }: { instance: Instance }) {
     void refresh(true);
   }, [instance.id]);
 
-  async function search() {
+  // Results are live: popular plugins show as soon as the tab opens, and
+  // typing re-searches after a short pause (no Search click needed). An empty
+  // box means "popular". `cancelled` drops a slow response that a newer
+  // keystroke has already superseded, so results never flicker back.
+  useEffect(() => {
     const trimmed = query.trim();
-    if (!trimmed) {
-      setResults([]);
-      setSubmittedQuery("");
-      return;
-    }
-    setIsSearching(true);
-    setSubmittedQuery(trimmed);
-    try {
-      setResults(await api.searchModrinthPlugins(trimmed));
-      setExpandedProject(null);
-    } catch (err) {
-      toast.error("Plugin search failed", { description: String(err) });
-    } finally {
-      setIsSearching(false);
-    }
-  }
+    let cancelled = false;
+    const timer = window.setTimeout(
+      async () => {
+        setIsSearching(true);
+        setSubmittedQuery(trimmed);
+        try {
+          const hits = await api.searchModrinthPlugins(instance.id, trimmed);
+          if (cancelled) return;
+          setResults(hits);
+          setExpandedProject(null);
+        } catch (err) {
+          if (!cancelled) toast.error("Plugin search failed", { description: String(err) });
+        } finally {
+          if (!cancelled) setIsSearching(false);
+        }
+      },
+      trimmed ? 350 : 0,
+    );
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [query, instance.id, instance.minecraftVersion, instance.loader]);
 
   async function loadVersions(projectId: string) {
     if (expandedProject === projectId) {
@@ -270,32 +281,28 @@ export function InstancePluginsTab({ instance }: { instance: Instance }) {
                 placeholder="Try Essentials, LuckPerms, ViaVersion…"
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
-                onKeyDown={(event) => event.key === "Enter" && void search()}
               />
               {query && (
                 <button
                   type="button"
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
                   aria-label="Clear plugin search"
-                  onClick={() => {
-                    setQuery("");
-                    setResults([]);
-                    setSubmittedQuery("");
-                  }}
+                  onClick={() => setQuery("")}
                 >
                   <X className="size-4" />
                 </button>
               )}
             </div>
-            <Button onClick={() => void search()} disabled={isSearching || !query.trim()}>
-              {isSearching ? <Loader2 className="animate-spin" /> : <Search />}
-              {isSearching ? "Searching…" : "Search"}
-            </Button>
+            {isSearching && (
+              <span className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="size-4 animate-spin" /> Searching…
+              </span>
+            )}
           </div>
 
-          {isSearching ? (
+          {results.length === 0 && isSearching ? (
             <div className="flex items-center justify-center gap-2 p-8 text-sm text-muted-foreground">
-              <Loader2 className="size-4 animate-spin" /> Searching Modrinth…
+              <Loader2 className="size-4 animate-spin" /> Loading plugins…
             </div>
           ) : submittedQuery && results.length === 0 ? (
             <div className="p-8 text-center text-sm text-muted-foreground">
@@ -303,6 +310,9 @@ export function InstancePluginsTab({ instance }: { instance: Instance }) {
             </div>
           ) : results.length > 0 ? (
             <div className="mt-4 flex flex-col gap-2">
+              <p className="text-xs text-muted-foreground">
+                {submittedQuery ? `Results for “${submittedQuery}”` : "Most downloaded plugins"}
+              </p>
               {results.map((project) => {
                 const projectVersions = (versions[project.projectId] ?? []).filter(isCompatible);
                 const isExpanded = expandedProject === project.projectId;
@@ -363,7 +373,7 @@ export function InstancePluginsTab({ instance }: { instance: Instance }) {
           ) : (
             <div className="flex flex-col items-center gap-2 p-8 text-center text-muted-foreground">
               <Search className="size-8 opacity-50" />
-              <p className="text-sm">Search for a plugin to get started.</p>
+              <p className="text-sm">No plugins to show.</p>
             </div>
           )}
         </CardContent>

@@ -173,15 +173,15 @@ export function ModpackBrowsePanel({
     }
   }, []);
 
-  // Fill the list on open and whenever the source changes, so the picker
-  // always shows something to install rather than an empty box waiting on
-  // a search term.
+  // The list is live: it fills on open, when the source changes, and as you
+  // type (after a short pause, so it isn't a request per keystroke). An empty
+  // box shows the service's browse list. `loadList`'s sequence guard drops any
+  // response a newer request has superseded.
   useEffect(() => {
-    void loadList(source, query.trim());
-    // Deliberately not keyed on `query`: typing shouldn't fire a request
-    // per keystroke - the search form submits instead.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [source, loadList]);
+    const term = query.trim();
+    const timer = window.setTimeout(() => void loadList(source, term), term ? 350 : 0);
+    return () => window.clearTimeout(timer);
+  }, [source, query, loadList]);
 
   async function selectPack(hit: PackHit) {
     setIsAnalyzing(true);

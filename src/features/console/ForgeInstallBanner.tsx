@@ -8,7 +8,7 @@ import {
   LOADER_INSTALL_PROGRESS_EVENT,
   type LoaderInstallProgressPayload,
 } from "@/types/events";
-import type { Instance } from "@/types/instance";
+import { isBuildToolsLoader, isDirectDownloadLoader, type Instance } from "@/types/instance";
 
 /** True when this instance's `server_jar` is (or looks like) a Forge/
  * NeoForge installer rather than an actual runnable server - either it was
@@ -25,12 +25,18 @@ export function needsForgeInstall(instance: Instance): boolean {
   return !instance.serverJar || instance.serverJar.toLowerCase().includes("installer");
 }
 
+/** A Vanilla/Paper/Purpur instance that has a Minecraft version but no
+ * server jar yet - e.g. the download failed right after Create Server. */
 export function needsPaperInstall(instance: Instance): boolean {
-  return instance.loader === "paper" && (!instance.serverJar || instance.launchMode !== "jar");
+  return (
+    isDirectDownloadLoader(instance.loader) &&
+    !!instance.minecraftVersion &&
+    (!instance.serverJar || instance.launchMode !== "jar")
+  );
 }
 
 export function ForgeInstallBanner({ instance }: { instance: Instance }) {
-  const { installForgeServer, installPaperServer } = useInstancesStore();
+  const { installForgeServer, installServerJar } = useInstancesStore();
   const [isInstalling, setIsInstalling] = useState(false);
   const [step, setStep] = useState<string | null>(null);
 
@@ -60,7 +66,7 @@ export function ForgeInstallBanner({ instance }: { instance: Instance }) {
     setStep(null);
     try {
       if (needsPaperInstall(instance)) {
-        await installPaperServer(instance.id);
+        await installServerJar(instance.id);
       } else {
         await installForgeServer(instance.id);
       }
@@ -82,13 +88,23 @@ export function ForgeInstallBanner({ instance }: { instance: Instance }) {
         This server isn't installed yet
       </p>
       <p className="text-sm text-muted-foreground">
-        Modern Forge/NeoForge packs ship an installer, not a ready-to-run server. Starting this
-        instance as-is just opens that installer's window instead of booting a server. Run it
-        once here and this only needs doing this one time.
+        {needsPaperInstall(instance)
+          ? isBuildToolsLoader(instance.loader)
+            ? "Spigot and Bukkit have no download - SpigotMC's BuildTools compiles them on this PC. It needs the right Java installed and an internet connection, and only has to be done once."
+            : "This server's jar hasn't been downloaded yet. Download it once and the server is ready to start."
+          : "Modern Forge/NeoForge packs ship an installer, not a ready-to-run server. Starting this instance as-is just opens that installer's window instead of booting a server. Run it once here and this only needs doing this one time."}
       </p>
       <Button size="sm" className="w-fit" disabled={isInstalling} onClick={handleInstall}>
         <Hammer />
-        {isInstalling ? "Installing…" : needsPaperInstall(instance) ? "Install Paper Server" : "Install Forge/NeoForge Server"}
+        {isInstalling
+          ? needsPaperInstall(instance) && isBuildToolsLoader(instance.loader)
+            ? "Building…"
+            : "Installing…"
+          : needsPaperInstall(instance)
+            ? isBuildToolsLoader(instance.loader)
+              ? "Build Server"
+              : "Download Server"
+            : "Install Forge/NeoForge Server"}
       </Button>
 
       {isInstalling && (
@@ -108,7 +124,9 @@ export function ForgeInstallBanner({ instance }: { instance: Instance }) {
             {step ?? "Starting the installer…"}
           </p>
           <p className="text-xs text-muted-foreground">
-            This takes a few minutes on a fresh pack. Please don't close ModpackPilot.
+            {isBuildToolsLoader(instance.loader)
+              ? "A build takes 5-15 minutes. Please don't close ModpackPilot."
+              : "This takes a few minutes on a fresh pack. Please don't close ModpackPilot."}
           </p>
         </div>
       )}

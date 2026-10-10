@@ -4,6 +4,7 @@ import type {
   CreateInstanceRequest,
   Instance,
   LaunchHistoryEntry,
+  ServerLoader,
   UpdateInstanceSettingsRequest,
 } from "@/types/instance";
 import type {
@@ -283,8 +284,8 @@ export const api = {
 
   searchModrinthProjects: (query: string) =>
     invoke<ModrinthSearchHit[]>("search_modrinth_projects", { query }),
-  searchModrinthPlugins: (query: string) =>
-    invoke<ModrinthSearchHit[]>("search_modrinth_plugins", { query }),
+  searchModrinthPlugins: (id: string, query: string) =>
+    invoke<ModrinthSearchHit[]>("search_modrinth_plugins", { id, query }),
 
   browseModrinthPacks: () => invoke<ModrinthSearchHit[]>("browse_modrinth_packs"),
 
@@ -314,7 +315,10 @@ export const api = {
     invoke<Instance>("apply_modpack_update", { id, versionId }),
 
   installForgeServer: (id: string) => invoke<Instance>("install_forge_server", { id }),
-  installPaperServer: (id: string) => invoke<Instance>("install_paper_server", { id }),
+  installServerJar: (id: string) => invoke<Instance>("install_server_jar", { id }),
+  acceptEula: (id: string) => invoke<void>("accept_eula", { id }),
+  listServerVersions: (loader: ServerLoader) =>
+    invoke<string[]>("list_server_versions", { loader }),
 
   setUpdatePolicy: (id: string, policy: string) =>
     invoke<Instance>("set_update_policy", { id, policy }),

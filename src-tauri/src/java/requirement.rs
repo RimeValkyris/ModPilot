@@ -7,6 +7,8 @@
 /// recommendations before a launch and the backend needs it to actually
 /// pick the JVM.
 const THRESHOLDS: &[((u32, u32, u32), u32)] = &[
+    // Mojang's year-based versions (26.1 and later) require Java 25.
+    ((26, 0, 0), 25),
     ((1, 20, 5), 21),
     ((1, 18, 0), 17),
     ((1, 17, 0), 16),
@@ -57,6 +59,9 @@ mod tests {
         assert_eq!(required_java_major(Some("1.21")), Some(21));
         assert_eq!(required_java_major(Some("1.17.1")), Some(16));
         assert_eq!(required_java_major(Some("1.12.2")), Some(8));
+        assert_eq!(required_java_major(Some("1.21.11")), Some(21));
+        assert_eq!(required_java_major(Some("26.1")), Some(25));
+        assert_eq!(required_java_major(Some("26.3")), Some(25));
         assert_eq!(required_java_major(None), None);
         assert_eq!(required_java_major(Some("not-a-version")), None);
     }

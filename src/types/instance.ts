@@ -11,6 +11,9 @@ export type ServerLoader =
   | "fabric"
   | "quilt"
   | "paper"
+  | "purpur"
+  | "spigot"
+  | "bukkit"
   | "unknown";
 
 export type ServerStatus =
@@ -87,7 +90,33 @@ export const SERVER_LOADERS: ServerLoader[] = [
   "fabric",
   "quilt",
   "paper",
+  "purpur",
+  "spigot",
+  "bukkit",
 ];
+
+/** Server types ModpackPilot can install by itself from just a Minecraft
+ * version (see Rust's `install_server_jar`). */
+export const DIRECT_DOWNLOAD_LOADERS: ServerLoader[] = [
+  "vanilla",
+  "paper",
+  "purpur",
+  "spigot",
+  "bukkit",
+];
+
+/** The subset with no download: SpigotMC's BuildTools compiles them, which
+ * takes several minutes and so runs from the server's page, not the Create
+ * dialog. */
+export const BUILD_TOOLS_LOADERS: ServerLoader[] = ["spigot", "bukkit"];
+
+export function isDirectDownloadLoader(loader: ServerLoader): boolean {
+  return DIRECT_DOWNLOAD_LOADERS.includes(loader);
+}
+
+export function isBuildToolsLoader(loader: ServerLoader): boolean {
+  return BUILD_TOOLS_LOADERS.includes(loader);
+}
 
 /** Mirrors Rust's `LaunchHistoryEntry`. */
 export interface LaunchHistoryEntry {

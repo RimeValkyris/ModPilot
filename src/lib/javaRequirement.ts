@@ -4,6 +4,8 @@
  * given version meets or exceeds wins.
  */
 const THRESHOLDS: Array<{ min: [number, number, number]; java: number }> = [
+  // Mojang's year-based versions (26.1 and later) require Java 25.
+  { min: [26, 0, 0], java: 25 },
   { min: [1, 20, 5], java: 21 },
   { min: [1, 18, 0], java: 17 },
   { min: [1, 17, 0], java: 16 },

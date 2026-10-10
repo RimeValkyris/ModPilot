@@ -45,6 +45,9 @@ const LOADER_LABELS: Record<ServerLoader, string> = {
   fabric: "Fabric",
   quilt: "Quilt",
   paper: "Paper",
+  purpur: "Purpur",
+  spigot: "Spigot",
+  bukkit: "Bukkit",
   unknown: "Unknown",
 };
 

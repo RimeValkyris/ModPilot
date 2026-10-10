@@ -441,32 +441,122 @@ pub async fn install_forge_server(
         .ok_or_else(|| "Instance not found".to_string())
 }
 
-/// Downloads the official Paper server for an instance and records the
-/// resulting runnable jar. Paper's Fill API returns the latest build and
-/// checksum, so this path does not require a Java installation.
+/// Minecraft versions available for a downloadable server type, newest
+/// first. Feeds the version dropdown in Create Server.
 #[tauri::command]
-pub async fn install_paper_server(
+pub async fn list_server_versions(loader: ServerLoader) -> Result<Vec<String>, String> {
+    crate::loader::list_versions(loader).await
+}
+
+/// Instances with a server install in flight. A second install on the same
+/// instance (a double click, or the banner racing the Create dialog) would
+/// write the same jar - or, for BuildTools, the same scratch folder - at once.
+fn installing_instances() -> &'static std::sync::Mutex<std::collections::HashSet<String>> {
+    static SET: std::sync::OnceLock<std::sync::Mutex<std::collections::HashSet<String>>> =
+        std::sync::OnceLock::new();
+    SET.get_or_init(Default::default)
+}
+
+/// Releases the instance's install slot when dropped, on every exit path.
+struct InstallSlot(String);
+
+impl InstallSlot {
+    fn claim(id: &str) -> Result<Self, String> {
+        let mut set = installing_instances().lock().unwrap_or_else(|e| e.into_inner());
+        if !set.insert(id.to_string()) {
+            return Err("A server install is already running for this instance".to_string());
+        }
+        Ok(Self(id.to_string()))
+    }
+}
+
+impl Drop for InstallSlot {
+    fn drop(&mut self) {
+        installing_instances()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&self.0);
+    }
+}
+
+/// Installs the server jar for a Vanilla, Paper, Purpur, Spigot or Bukkit
+/// instance and records the resulting runnable jar.
+///
+/// Vanilla, Paper and Purpur download straight from the vendor (checksummed
+/// where the vendor publishes one) and need no Java. Spigot and Bukkit have
+/// no download: SpigotMC's BuildTools compiles them, which needs a matching
+/// Java and takes several minutes, so progress is streamed to the UI.
+#[tauri::command]
+pub async fn install_server_jar(
+    app: AppHandle,
     state: State<'_, AppState>,
     id: String,
 ) -> Result<Instance, String> {
     let instance = fetch_instance(&state, &id)
         .await?
         .ok_or_else(|| "Instance not found".to_string())?;
-    if instance.loader != ServerLoader::Paper {
-        return Err("Install Paper Server can only be used for a Paper instance".to_string());
+    let loader = instance.loader;
+    if !matches!(
+        loader,
+        ServerLoader::Vanilla
+            | ServerLoader::Paper
+            | ServerLoader::Purpur
+            | ServerLoader::Spigot
+            | ServerLoader::Bukkit
+    ) {
+        return Err(format!(
+            "A {} server can't be downloaded directly",
+            loader.as_str()
+        ));
+    }
+    if state.processes.is_running(&id).await {
+        return Err("Stop the server before reinstalling it".to_string());
     }
     let minecraft_version = instance
         .minecraft_version
         .as_deref()
-        .ok_or_else(|| "Paper needs a Minecraft version before it can be installed".to_string())?;
-    let installed = crate::loader::install(
-        &Path::new(&instance.server_directory).join("server"),
-        ServerLoader::Paper,
-        instance.loader_version.as_deref().unwrap_or("latest"),
-        Some(minecraft_version),
-        "java",
-    )
-    .await?;
+        .ok_or_else(|| "Choose a Minecraft version before installing the server".to_string())?;
+    let _slot = InstallSlot::claim(&id)?;
+    let server_dir = Path::new(&instance.server_directory).join("server");
+
+    let installed = if crate::loader::needs_build_tools(loader) {
+        // BuildTools refuses a Java that doesn't match the target version,
+        // so resolve one the same way starting the server would.
+        let java_path = resolve_java_path(
+            &state.db,
+            instance.java_installation_id.as_deref(),
+            Some(minecraft_version),
+            instance.loader_version.as_deref(),
+            loader,
+        )
+        .await?;
+        let report = |step: &str| {
+            let _ = app.emit(
+                LOADER_INSTALL_PROGRESS_EVENT,
+                LoaderInstallProgressPayload {
+                    instance_id: instance.id.clone(),
+                    step: step.to_string(),
+                },
+            );
+        };
+        crate::loader::build_with_build_tools(
+            &server_dir,
+            loader,
+            minecraft_version,
+            &java_path,
+            Some(&report),
+        )
+        .await?
+    } else {
+        crate::loader::install(
+            &server_dir,
+            loader,
+            instance.loader_version.as_deref().unwrap_or("latest"),
+            Some(minecraft_version),
+            "java",
+        )
+        .await?
+    };
     sqlx::query(
         "UPDATE instances SET server_jar = ?, launch_mode = ?, loader_version = COALESCE(?, loader_version) WHERE id = ?",
     )
@@ -476,7 +566,7 @@ pub async fn install_paper_server(
     .bind(&id)
     .execute(&state.db)
     .await
-    .map_err(|e| format!("Paper installed, but failed to save the result: {e}"))?;
+    .map_err(|e| format!("Server downloaded, but failed to save the result: {e}"))?;
     fetch_instance(&state, &id)
         .await?
         .ok_or_else(|| "Instance not found".to_string())
@@ -706,6 +796,31 @@ async fn patch_update_checker_toggle(path: &Path) -> std::io::Result<()> {
         }
         Err(e) => Err(e),
     }
+}
+
+/// Records that the operator accepted Mojang's EULA for this instance.
+///
+/// Called from Create Server only after the user ticked the acceptance
+/// checkbox, so unlike `ensure_eula_accepted` (the start-time fallback for
+/// imported servers) this is an explicit, informed choice. It overwrites an
+/// existing `eula.txt` because the operator has just said yes.
+#[tauri::command]
+pub async fn accept_eula(state: State<'_, AppState>, id: String) -> Result<(), String> {
+    let instance = fetch_instance(&state, &id)
+        .await?
+        .ok_or_else(|| "Instance not found".to_string())?;
+    let server_dir = Path::new(&instance.server_directory).join("server");
+    tokio::fs::create_dir_all(&server_dir)
+        .await
+        .map_err(|e| format!("Failed to create the server folder: {e}"))?;
+    tokio::fs::write(
+        server_dir.join("eula.txt"),
+        "# Accepted in ModpackPilot when this server was created.\n\
+         # https://aka.ms/MinecraftEULA\n\
+         eula=true\n",
+    )
+    .await
+    .map_err(|e| format!("Failed to write eula.txt: {e}"))
 }
 
 /// Writes `eula.txt` with `eula=true` if it isn't already there. Mojang's

@@ -30,11 +30,21 @@ pub async fn search_modrinth_projects(query: String) -> Result<Vec<ModrinthSearc
 }
 
 #[tauri::command]
-pub async fn search_modrinth_plugins(query: String) -> Result<Vec<ModrinthSearchHit>, String> {
-    if query.trim().is_empty() {
-        return Ok(Vec::new());
-    }
-    modrinth::search_plugins(query.trim()).await
+pub async fn search_modrinth_plugins(
+    state: State<'_, AppState>,
+    id: String,
+    query: String,
+) -> Result<Vec<ModrinthSearchHit>, String> {
+    let instance = fetch_instance(&state, &id)
+        .await?
+        .ok_or_else(|| "Instance not found".to_string())?;
+    // An empty query is allowed: it returns the most-downloaded plugins.
+    modrinth::search_plugins(
+        query.trim(),
+        instance.minecraft_version.as_deref(),
+        instance.loader,
+    )
+    .await
 }
 
 #[tauri::command]
