@@ -55,7 +55,7 @@ base64 = "0.22"
 sha1 = "0.10"
 sha2 = "0.10"
 md-5 = "0.10"
-sysinfo = "0.32"
+sysinfo = "0.40"
 # Just for `join_all`: the dashboard poll enriches every running instance
 # concurrently, and a serialized ping timeout would stack polls.
 futures = { version = "0.3", default-features = false, features = ["std", "async-await"] }
