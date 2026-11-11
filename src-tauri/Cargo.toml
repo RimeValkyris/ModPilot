@@ -53,7 +53,7 @@ base64 = "0.22"
 # FTB publishes a SHA-1 per pack file; verifying them is what keeps a
 # truncated download from becoming a corrupt jar that only fails at runtime.
 sha1 = "0.10"
-sha2 = "0.10"
+sha2 = "0.11"
 md-5 = "0.10"
 sysinfo = "0.32"
 # Just for `join_all`: the dashboard poll enriches every running instance
